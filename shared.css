@@ -18,18 +18,18 @@
 }
 
 :root[data-theme="light"] {
-  --bg: #f9f9fb;
-  --surface: #ffffff;
+  --bg: #f5f2eb;
+  --surface: #faf7f0;
   --card: #ffffff;
-  --border: #e5e7eb;
-  --text: #111827;
-  --muted: #6b7280;
+  --border: #b0aaa0;
+  --text: #1a1917;
+  --muted: #524f4a;
   --accent: #a38240;
   --accent2: #6366f1;
   --success: #22c55e;
   --error: #ef4444;
   --warn: #f59e0b;
-  --shadow: 0 4px 20px rgba(0,0,0,0.05);
+  --shadow: 0 4px 20px rgba(0,0,0,0.08);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
