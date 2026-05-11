@@ -17,6 +17,21 @@
   --radius: 18px;
 }
 
+:root[data-theme="light"] {
+  --bg: #f9f9fb;
+  --surface: #ffffff;
+  --card: #ffffff;
+  --border: #e5e7eb;
+  --text: #111827;
+  --muted: #6b7280;
+  --accent: #a38240;
+  --accent2: #6366f1;
+  --success: #22c55e;
+  --error: #ef4444;
+  --warn: #f59e0b;
+  --shadow: 0 4px 20px rgba(0,0,0,0.05);
+}
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {

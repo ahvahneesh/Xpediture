@@ -1,5 +1,17 @@
 // shared.js — Xpediture common utilities
 
+(function() {
+  const saved = localStorage.getItem("xp_theme") || "dark";
+  document.documentElement.setAttribute("data-theme", saved);
+})();
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute("data-theme") || "dark";
+  const next = current === "light" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", next);
+  localStorage.setItem("xp_theme", next);
+}
+
 // ── AUTH GUARD ────────────────────────────────────────────
 function requireAuth() {
   const user = JSON.parse(localStorage.getItem("xp_logged"));
