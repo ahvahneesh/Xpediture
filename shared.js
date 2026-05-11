@@ -70,7 +70,11 @@ function convert(amount, from, to) {
 // ── POPULATE CURRENCY SELECT ──────────────────────────────
 function populateCurrencySelect(el, selectedVal) {
   const codes = Object.keys(_currencyNames).sort();
-  el.innerHTML = codes.map(c => `<option value="${c}">${c} — ${_currencyNames[c]}</option>`).join('');
+  el.innerHTML = codes.map(c => {
+    const name = _currencyNames[c] || c;
+    const display = name.length > 16 ? name.substring(0, 13) + "..." : name;
+    return `<option value="${c}">${c} — ${display}</option>`;
+  }).join('');
   if (selectedVal) el.value = selectedVal;
 }
 
