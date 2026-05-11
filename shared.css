@@ -1,6 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
 
 :root {
+  color-scheme: dark;
   --bg: #0a0a0f;
   --surface: #111118;
   --card: #16161f;
@@ -18,6 +19,7 @@
 }
 
 :root[data-theme="light"] {
+  color-scheme: light;
   --bg: #f5f2eb;
   --surface: #faf7f0;
   --card: #ffffff;
@@ -253,7 +255,7 @@ button.full { width: 100%; text-align: center; padding: 13px; }
   letter-spacing: 0.3px;
 }
 
-.badge.planned { background: rgba(124,111,205,0.15); color: #a89de8; border: 1px solid rgba(124,111,205,0.3); }
+.badge.planned { background: rgba(124,111,205,0.15); color: #dcd6f7; border: 1px solid rgba(124,111,205,0.3); }
 .badge.ongoing { background: rgba(74,222,128,0.1); color: #4ade80; border: 1px solid rgba(74,222,128,0.25); }
 .badge.completed { background: rgba(255,255,255,0.06); color: var(--muted); border: 1px solid var(--border); }
 
@@ -294,11 +296,13 @@ button.full { width: 100%; text-align: center; padding: 13px; }
 
 /* ── COVER IMAGE ─────────────────────────────────────── */
 .cover-img {
-  width: 100%;
-  height: 140px;
+  aspect-ratio: 16/9;
+  height: auto;
   object-fit: cover;
-  border-radius: 12px;
-  margin-bottom: 14px;
+  width: calc(100% + 36px);
+  margin: -18px -18px 14px -18px;
+  border-radius: 13px 13px 0 0;
+  border-bottom: 1px solid var(--border);
   display: block;
 }
 
@@ -310,6 +314,8 @@ button.full { width: 100%; text-align: center; padding: 13px; }
   padding: 18px;
   margin-bottom: 12px;
   transition: border-color 0.2s;
+  display: flex;
+  flex-direction: column;
 }
 
 .trip-card.active { border-color: var(--accent); }

@@ -73,8 +73,6 @@
 let user, data, store;
 let catChartInst = null, dayChartInst = null;
 
-Chart.defaults.color = '#606080';
-Chart.defaults.borderColor = '#1e1e2e';
 Chart.defaults.font.family = "'DM Sans', sans-serif";
 
 async function init() {
@@ -102,6 +100,10 @@ function changeTrip(name) {
 }
 
 function renderAnalytics() {
+  const styles = getComputedStyle(document.body);
+  Chart.defaults.color = styles.getPropertyValue('--muted').trim();
+  Chart.defaults.borderColor = styles.getPropertyValue('--border').trim();
+
   const tName = store.currentTrip;
   const statsRow = document.getElementById("statsRow");
   const insightsList = document.getElementById("insightsList");

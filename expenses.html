@@ -63,7 +63,7 @@
         </div>
         <div class="field">
           <label>Category</label>
-          <select id="expCat">
+          <select id="expCat" onchange="document.getElementById('expCatCustom').style.display = this.value === 'custom' ? 'block' : 'none'">
             <option>🍔 Food</option>
             <option>🚌 Transport</option>
             <option>🏨 Stay</option>
@@ -71,7 +71,9 @@
             <option>🎭 Entertainment</option>
             <option>💊 Health</option>
             <option>📦 Other</option>
+            <option value="custom">✨ Custom...</option>
           </select>
+          <input id="expCatCustom" placeholder="Enter category..." style="display:none; margin-top:8px;">
         </div>
         <div class="field">
           <label>Date</label>
@@ -174,7 +176,10 @@ function addExpense() {
   if (!store.currentTrip) return notify("Select a trip first", "error");
   const title = document.getElementById("expTitle").value.trim();
   const amount = parseFloat(document.getElementById("expAmount").value);
-  const cat = document.getElementById("expCat").value;
+  let cat = document.getElementById("expCat").value;
+  if (cat === 'custom') {
+    cat = document.getElementById("expCatCustom").value.trim() || "📦 Other";
+  }
   const date = document.getElementById("expDate").value;
   if (!title || !amount || !date) return notify("Fill all fields", "error");
   store.trips[store.currentTrip].expenses.push({ title, amount, category: cat, date });

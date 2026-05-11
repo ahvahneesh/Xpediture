@@ -152,9 +152,20 @@ function addTemplate(type) {
   if (!trip.checklist) trip.checklist = [];
   const existing = trip.checklist.map(x => x.text.toLowerCase());
   let added = 0;
+
+  const tags = {
+    essentials: '🗂 Essentials',
+    clothes: '👕 Clothes',
+    tech: '💻 Tech',
+    beach: '🏖 Beach',
+    health: '💊 Health'
+  };
+  const prefix = `[${tags[type]}] `;
+
   TEMPLATES[type].forEach(item => {
-    if (!existing.includes(item.toLowerCase())) {
-      trip.checklist.push({ text: item, done: false });
+    const taggedItem = prefix + item;
+    if (!existing.includes(taggedItem.toLowerCase())) {
+      trip.checklist.push({ text: taggedItem, done: false });
       added++;
     }
   });
