@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Xpediture — Trips</title>
+<link rel="stylesheet" href="shared.css">
+</head>
+<body>
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">X<span>pediture</span></div>
+    <nav>
+      <a href="trips.html" class="nav-link active"><span class="icon">✈️</span><span>Trips</span></a>
+      <a href="expenses.html" class="nav-link"><span class="icon">💸</span><span>Expenses</span></a>
+      <a href="analytics.html" class="nav-link"><span class="icon">📊</span><span>Analytics</span></a>
+      <a href="checklist.html" class="nav-link"><span class="icon">🎒</span><span>Checklist</span></a>
+      <a href="converter.html" class="nav-link"><span class="icon">💱</span><span>Converter</span></a>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="sidebar-user" id="sidebarUser"></div>
+      <div class="currency-row">
+        <label>Home:</label>
+        <select id="sidebarCurrency" style="width:auto;font-size:12px;padding:5px 8px;"></select>
+      </div>
+      <button class="ghost full" style="margin-top:10px;" onclick="logout()"><span>Logout</span></button>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <div class="main-content">
+    <div class="page-header">
+      <h1>Your Trips</h1>
+      <p>Create and manage all your travel adventures</p>
+    </div>
+
+    <!-- CREATE TRIP -->
+    <div class="card">
+      <h3>➕ New Trip</h3>
+      <div class="grid">
+        <div class="field">
+          <label>Trip Name</label>
+          <input id="tripName" placeholder="e.g. Paris 2025">
+        </div>
+        <div class="field">
+          <label>Currency</label>
+          <select id="tripCurrency"></select>
+        </div>
+        <div class="field">
+          <label>Status</label>
+          <select id="tripStatus">
+            <option value="planned">📅 Planned</option>
+            <option value="ongoing">🟢 Ongoing</option>
+            <option value="completed">✅ Completed</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Start Date</label>
+          <input id="tripStart" type="date">
+        </div>
+        <div class="field">
+          <label>End Date</label>
+          <input id="tripEnd" type="date">
+        </div>
+        <div class="field">
+          <label>Budget (optional)</label>
+          <input id="tripBudget" type="number" placeholder="0">
+        </div>
+      </div>
+      <div class="field" style="margin-top:4px;">
+        <label>Cover Photo URL (optional)</label>
+        <input id="tripCover" placeholder="https://images.unsplash.com/...">
+      </div>
+      <button onclick="addTrip()" style="margin-top:6px;">Create Trip</button>
+    </div>
+
+    <!-- TRIP LIST -->
+    <div class="card">
+      <h3>🗺️ All Trips</h3>
+      <div id="tripList"></div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="shared.js"></script>
+<script>
+let user, data, store;
+
+async function init() {
+  user = requireAuth();
+  if (!user) return;
+  await loadRates();
+  renderSidebarUser(user);
+  const res = getUserStore(user);
+  data = res.data; store = res.store;
+  populateCurrencySelect(document.getElementById("tripCurrency"), "EUR");
+  renderTrips();
+}
+
+function addTrip() {
+  const name = document.getElementById("tripName").value.trim();
+  if (!name) return notify("Enter a trip name", "error");
+  if (store.trips[name]) return notify("Trip name already exists", "error");
+  store.trips[name] = {
+    currency: document.getElementById("tripCurrency").value,
+    status: document.getElementById("tripStatus").value,
+    start: document.getElementById("tripStart").value,
+    end: document.getElementById("tripEnd").value,
+    budget: parseFloat(document.getElementById("tripBudget").value) || 0,
+    cover: document.getElementById("tripCover").value.trim(),
+    expenses: [],
+    checklist: []
+  };
+  store.currentTrip = name;
+  saveData(data);
+  document.getElementById("tripName").value = "";
+  document.getElementById("tripBudget").value = "";
+  document.getElementById("tripCover").value = "";
+  renderTrips();
+  notify(`Trip "${name}" created!`);
+}
+
+function selectTrip(name) {
+  store.currentTrip = name;
+  saveData(data);
+  window.location.href = "expenses.html";
+}
+
+function deleteTrip(name) {
+  if (!confirm(`Delete trip "${name}" and all its data?`)) return;
+  delete store.trips[name];
+  const rem = Object.keys(store.trips);
+  store.currentTrip = rem.length ? rem[0] : "";
+  saveData(data);
+  renderTrips();
+  notify("Trip deleted");
+}
+
+function renderTrips() {
+  const container = document.getElementById("tripList");
+  const trips = Object.keys(store.trips);
+  if (!trips.length) {
+    container.innerHTML = `<div class="empty"><div class="icon">✈️</div><p>No trips yet. Create your first trip above!</p></div>`;
+    return;
+  }
+  container.innerHTML = trips.map(name => {
+    const trip = store.trips[name];
+    const total = trip.expenses.reduce((a, e) => a + e.amount, 0);
+    const isActive = name === store.currentTrip;
+    const dur = trip.start && trip.end ? Math.ceil((new Date(trip.end) - new Date(trip.start)) / 86400000) : 0;
+    const homeAmt = convert(total, trip.currency, user.base);
+
+    return `<div class="trip-card ${isActive ? 'active' : ''}">
+      ${trip.cover ? `<img src="${trip.cover}" class="cover-img" onerror="this.style.display='none'">` : ''}
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;">
+        <div>
+          <div style="font-size:16px;font-weight:700;margin-bottom:6px;">${name}</div>
+          <span class="badge ${trip.status}">${statusLabel(trip.status)}</span>
+          <div style="margin-top:8px;">
+            ${dur ? `<div style="font-size:12px;color:var(--muted);">📅 ${trip.start} → ${trip.end} &nbsp;·&nbsp; ${dur} days</div>` : ''}
+            <div style="font-size:12px;color:var(--muted);margin-top:3px;">${trip.currency} &nbsp;·&nbsp; ${trip.expenses.length} expenses</div>
+          </div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-family:'DM Mono',monospace;font-size:22px;font-weight:600;color:var(--accent);">${trip.currency} ${total.toFixed(2)}</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px;">≈ ${user.base} ${homeAmt.toFixed(2)}</div>
+          <div style="display:flex;gap:8px;margin-top:10px;justify-content:flex-end;">
+            <button class="sm" onclick="selectTrip('${name}')">Open →</button>
+            <button class="danger sm" onclick="deleteTrip('${name}')">Delete</button>
+          </div>
+        </div>
+      </div>
+      ${budgetBarHtml(trip.currency, total, trip.budget)}
+    </div>`;
+  }).join('');
+}
+
+function onCurrencyChange() { renderTrips(); }
+
+init();
+</script>
+</body>
+</html>

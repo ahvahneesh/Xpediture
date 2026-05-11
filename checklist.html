@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Xpediture — Checklist</title>
+<link rel="stylesheet" href="shared.css">
+</head>
+<body>
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">X<span>pediture</span></div>
+    <nav>
+      <a href="trips.html" class="nav-link"><span class="icon">✈️</span><span>Trips</span></a>
+      <a href="expenses.html" class="nav-link"><span class="icon">💸</span><span>Expenses</span></a>
+      <a href="analytics.html" class="nav-link"><span class="icon">📊</span><span>Analytics</span></a>
+      <a href="checklist.html" class="nav-link active"><span class="icon">🎒</span><span>Checklist</span></a>
+      <a href="converter.html" class="nav-link"><span class="icon">💱</span><span>Converter</span></a>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="sidebar-user" id="sidebarUser"></div>
+      <div class="currency-row">
+        <label>Home:</label>
+        <select id="sidebarCurrency" style="width:auto;font-size:12px;padding:5px 8px;"></select>
+      </div>
+      <button class="ghost full" style="margin-top:10px;" onclick="logout()"><span>Logout</span></button>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <div class="main-content">
+    <div class="page-header">
+      <h1>Packing Checklist</h1>
+      <p>Make sure you don't leave anything behind</p>
+    </div>
+
+    <!-- TRIP SELECT -->
+    <div class="card">
+      <h3>Active Trip</h3>
+      <select id="tripSelect" style="max-width:300px;" onchange="changeTrip(this.value)"></select>
+    </div>
+
+    <!-- PROGRESS -->
+    <div class="card" id="progressCard" style="display:none;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <h3 style="margin:0;">Packing Progress</h3>
+        <span id="progressLabel" style="font-family:'DM Mono',monospace;font-size:14px;color:var(--accent);"></span>
+      </div>
+      <div class="progress-wrap" style="height:10px;">
+        <div id="progressBar" class="progress-bar" style="background:var(--success);width:0%;"></div>
+      </div>
+    </div>
+
+    <!-- ADD ITEM -->
+    <div class="card">
+      <h3>➕ Add Item</h3>
+
+      <!-- QUICK TEMPLATES -->
+      <div style="margin-bottom:14px;">
+        <label style="margin-bottom:8px;">Quick Add Templates</label>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">
+          <button class="ghost sm" onclick="addTemplate('essentials')">🗂 Essentials</button>
+          <button class="ghost sm" onclick="addTemplate('clothes')">👕 Clothes</button>
+          <button class="ghost sm" onclick="addTemplate('tech')">💻 Tech</button>
+          <button class="ghost sm" onclick="addTemplate('beach')">🏖 Beach</button>
+          <button class="ghost sm" onclick="addTemplate('health')">💊 Health</button>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;">
+        <input id="checkInput" placeholder="Add a packing item..." onkeydown="if(event.key==='Enter')addItem()" style="flex:1;">
+        <button onclick="addItem()">Add</button>
+      </div>
+    </div>
+
+    <!-- CHECKLIST -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <h3 style="margin:0;">🎒 Items</h3>
+        <button class="ghost sm" onclick="clearDone()" id="clearDoneBtn" style="display:none;">Clear Done</button>
+      </div>
+
+      <!-- FILTER TABS -->
+      <div style="display:flex;gap:6px;margin-bottom:16px;">
+        <button class="ghost sm active-filter" id="filterAll" onclick="setFilter('all')">All</button>
+        <button class="ghost sm" id="filterTodo" onclick="setFilter('todo')">To Pack</button>
+        <button class="ghost sm" id="filterDone" onclick="setFilter('done')">Packed ✓</button>
+      </div>
+
+      <div id="checkList"></div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="shared.js"></script>
+<script>
+let user, data, store;
+let currentFilter = 'all';
+
+const TEMPLATES = {
+  essentials: ['Passport', 'Wallet', 'Phone', 'Phone charger', 'Headphones', 'Travel adapter', 'Cash', 'Travel insurance docs'],
+  clothes: ['T-shirts', 'Pants/Jeans', 'Underwear', 'Socks', 'Jacket', 'Sleepwear', 'Swimsuit', 'Comfortable shoes', 'Formal outfit'],
+  tech: ['Laptop', 'Laptop charger', 'Camera', 'Camera charger', 'Memory cards', 'Power bank', 'USB cables', 'Earbuds'],
+  beach: ['Sunscreen SPF 50+', 'Sunglasses', 'Flip flops', 'Beach towel', 'Swimsuit', 'Snorkel gear', 'Hat/Cap', 'Aloe vera gel'],
+  health: ['Prescription meds', 'Pain relievers', 'Band-aids', 'Hand sanitizer', 'Face masks', 'Vitamins', 'Antidiarrheal', 'Motion sickness pills']
+};
+
+async function init() {
+  user = requireAuth();
+  if (!user) return;
+  await loadRates();
+  renderSidebarUser(user);
+  const res = getUserStore(user);
+  data = res.data; store = res.store;
+  renderTripSelect();
+  renderChecklist();
+}
+
+function renderTripSelect() {
+  const sel = document.getElementById("tripSelect");
+  const trips = Object.keys(store.trips);
+  if (!trips.length) { sel.innerHTML = `<option value="">No trips — create one first</option>`; return; }
+  sel.innerHTML = trips.map(t => `<option value="${t}" ${t === store.currentTrip ? 'selected' : ''}>${t}</option>`).join('');
+}
+
+function changeTrip(name) {
+  store.currentTrip = name;
+  saveData(data);
+  renderChecklist();
+}
+
+function addItem() {
+  if (!store.currentTrip) return notify("Select a trip first", "error");
+  const val = document.getElementById("checkInput").value.trim();
+  if (!val) return;
+  const trip = store.trips[store.currentTrip];
+  if (!trip.checklist) trip.checklist = [];
+  if (trip.checklist.find(x => x.text.toLowerCase() === val.toLowerCase())) return notify("Item already exists", "warn");
+  trip.checklist.push({ text: val, done: false });
+  document.getElementById("checkInput").value = "";
+  saveData(data);
+  renderChecklist();
+}
+
+function addTemplate(type) {
+  if (!store.currentTrip) return notify("Select a trip first", "error");
+  const trip = store.trips[store.currentTrip];
+  if (!trip.checklist) trip.checklist = [];
+  const existing = trip.checklist.map(x => x.text.toLowerCase());
+  let added = 0;
+  TEMPLATES[type].forEach(item => {
+    if (!existing.includes(item.toLowerCase())) {
+      trip.checklist.push({ text: item, done: false });
+      added++;
+    }
+  });
+  saveData(data);
+  renderChecklist();
+  notify(`Added ${added} items!`);
+}
+
+function toggleItem(i) {
+  const trip = store.trips[store.currentTrip];
+  trip.checklist[i].done = !trip.checklist[i].done;
+  saveData(data);
+  renderChecklist();
+}
+
+function deleteItem(i) {
+  store.trips[store.currentTrip].checklist.splice(i, 1);
+  saveData(data);
+  renderChecklist();
+}
+
+function clearDone() {
+  const trip = store.trips[store.currentTrip];
+  trip.checklist = trip.checklist.filter(x => !x.done);
+  saveData(data);
+  renderChecklist();
+  notify("Cleared packed items");
+}
+
+function setFilter(f) {
+  currentFilter = f;
+  ['All','Todo','Done'].forEach(n => {
+    document.getElementById('filter'+n).style.background = f === n.toLowerCase() ? 'var(--accent)' : '';
+    document.getElementById('filter'+n).style.color = f === n.toLowerCase() ? '#0a0a0f' : '';
+  });
+  renderChecklist();
+}
+
+function renderChecklist() {
+  const tName = store.currentTrip;
+  const container = document.getElementById("checkList");
+  const progressCard = document.getElementById("progressCard");
+
+  if (!tName || !store.trips[tName]) {
+    container.innerHTML = `<div class="empty"><div class="icon">🎒</div><p>Select a trip to manage your checklist</p></div>`;
+    progressCard.style.display = 'none';
+    return;
+  }
+
+  const list = store.trips[tName].checklist || [];
+  const done = list.filter(x => x.done).length;
+  const pct = list.length ? Math.round((done / list.length) * 100) : 0;
+
+  // Progress
+  progressCard.style.display = list.length ? 'block' : 'none';
+  document.getElementById("progressLabel").textContent = `${done} / ${list.length} packed (${pct}%)`;
+  document.getElementById("progressBar").style.width = pct + '%';
+
+  // Clear done button
+  document.getElementById("clearDoneBtn").style.display = done > 0 ? 'block' : 'none';
+
+  // Filter
+  const filtered = list.map((item, i) => ({ ...item, i })).filter(item => {
+    if (currentFilter === 'todo') return !item.done;
+    if (currentFilter === 'done') return item.done;
+    return true;
+  });
+
+  if (!filtered.length) {
+    container.innerHTML = `<div class="empty"><p>${currentFilter === 'done' ? 'Nothing packed yet.' : currentFilter === 'todo' ? 'All done! ✓' : 'No items yet. Add something above!'}</p></div>`;
+    return;
+  }
+
+  container.innerHTML = filtered.map(item => `
+    <div class="check-row">
+      <input type="checkbox" ${item.done ? 'checked' : ''} onchange="toggleItem(${item.i})">
+      <span style="flex:1;" class="${item.done ? 'done' : ''}">${item.text}</span>
+      <button class="danger sm" onclick="deleteItem(${item.i})">✕</button>
+    </div>`).join('');
+}
+
+init();
+</script>
+</body>
+</html>

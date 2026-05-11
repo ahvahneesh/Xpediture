@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Xpediture — Expenses</title>
+<link rel="stylesheet" href="shared.css">
+</head>
+<body>
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">X<span>pediture</span></div>
+    <nav>
+      <a href="trips.html" class="nav-link"><span class="icon">✈️</span><span>Trips</span></a>
+      <a href="expenses.html" class="nav-link active"><span class="icon">💸</span><span>Expenses</span></a>
+      <a href="analytics.html" class="nav-link"><span class="icon">📊</span><span>Analytics</span></a>
+      <a href="checklist.html" class="nav-link"><span class="icon">🎒</span><span>Checklist</span></a>
+      <a href="converter.html" class="nav-link"><span class="icon">💱</span><span>Converter</span></a>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="sidebar-user" id="sidebarUser"></div>
+      <div class="currency-row">
+        <label>Home:</label>
+        <select id="sidebarCurrency" style="width:auto;font-size:12px;padding:5px 8px;"></select>
+      </div>
+      <button class="ghost full" style="margin-top:10px;" onclick="logout()"><span>Logout</span></button>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <div class="main-content">
+    <div class="page-header">
+      <h1>Expenses</h1>
+      <p id="subTitle">Select a trip to manage expenses</p>
+    </div>
+
+    <!-- TRIP SELECTOR -->
+    <div class="card" style="margin-bottom:20px;">
+      <h3>Active Trip</h3>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+        <select id="tripSelect" style="max-width:280px;" onchange="changeTrip(this.value)"></select>
+        <a href="trips.html" style="font-size:13px;color:var(--accent);text-decoration:none;">+ Create new trip</a>
+      </div>
+    </div>
+
+    <!-- TRIP SUMMARY -->
+    <div id="summaryCard" class="card"></div>
+
+    <!-- ADD EXPENSE -->
+    <div class="card">
+      <h3>➕ Add Expense</h3>
+      <div class="grid">
+        <div class="field">
+          <label>Title</label>
+          <input id="expTitle" placeholder="What did you spend on?">
+        </div>
+        <div class="field">
+          <label>Amount</label>
+          <input id="expAmount" type="number" placeholder="0.00">
+        </div>
+        <div class="field">
+          <label>Category</label>
+          <select id="expCat">
+            <option>🍔 Food</option>
+            <option>🚌 Transport</option>
+            <option>🏨 Stay</option>
+            <option>🛍 Shopping</option>
+            <option>🎭 Entertainment</option>
+            <option>💊 Health</option>
+            <option>📦 Other</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Date</label>
+          <input id="expDate" type="date">
+        </div>
+      </div>
+      <button onclick="addExpense()" style="margin-top:6px;">Add Expense</button>
+    </div>
+
+    <!-- EXPENSE LIST -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
+        <h3 style="margin:0;">💸 All Expenses</h3>
+        <div style="display:flex;gap:8px;">
+          <button class="ghost sm" onclick="exportCSV()">⬇ CSV</button>
+          <button class="ghost sm" onclick="exportPDF()">⬇ PDF</button>
+        </div>
+      </div>
+      <input id="search" placeholder="Search expenses..." oninput="renderList()" style="margin-bottom:16px;">
+      <div class="scroll"><ul id="expList" style="list-style:none;padding:0;margin:0;"></ul></div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="shared.js"></script>
+<script>
+let user, data, store;
+
+async function init() {
+  user = requireAuth();
+  if (!user) return;
+  await loadRates();
+  renderSidebarUser(user);
+  const res = getUserStore(user);
+  data = res.data; store = res.store;
+  document.getElementById("expDate").valueAsDate = new Date();
+  renderTripSelect();
+  renderSummary();
+  renderList();
+}
+
+function renderTripSelect() {
+  const sel = document.getElementById("tripSelect");
+  const trips = Object.keys(store.trips);
+  if (!trips.length) {
+    sel.innerHTML = `<option value="">No trips — create one first</option>`;
+    return;
+  }
+  sel.innerHTML = trips.map(t => `<option value="${t}" ${t === store.currentTrip ? 'selected' : ''}>${t}</option>`).join('');
+}
+
+function changeTrip(name) {
+  store.currentTrip = name;
+  saveData(data);
+  renderSummary();
+  renderList();
+}
+
+function renderSummary() {
+  const tName = store.currentTrip;
+  const card = document.getElementById("summaryCard");
+  document.getElementById("subTitle").textContent = tName ? `Trip: ${tName}` : "Select a trip below";
+  if (!tName || !store.trips[tName]) {
+    card.innerHTML = `<div class="empty"><div class="icon">✈️</div><p>No trip selected. <a href="trips.html" style="color:var(--accent)">Go to Trips</a> to create or select one.</p></div>`;
+    return;
+  }
+  const trip = store.trips[tName];
+  const exps = trip.expenses;
+  const total = exps.reduce((a, e) => a + e.amount, 0);
+  const dur = trip.start && trip.end ? Math.ceil((new Date(trip.end) - new Date(trip.start)) / 86400000) : 0;
+  const dailyAvg = dur > 0 ? (total / dur).toFixed(2) : '—';
+  const homeAmt = convert(total, trip.currency, user.base);
+  const med = mostExpensiveDay(exps);
+  const streak = spendingStreak(exps);
+
+  card.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
+      <div>
+        <div style="font-size:18px;font-weight:700;">${tName}</div>
+        <span class="badge ${trip.status}">${statusLabel(trip.status)}</span>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-family:'DM Mono',monospace;font-size:26px;font-weight:600;color:var(--accent);">${trip.currency} ${total.toFixed(2)}</div>
+        <div style="font-size:13px;color:var(--muted);">≈ ${user.base} ${homeAmt.toFixed(2)}</div>
+      </div>
+    </div>
+    <div class="grid3" style="margin-bottom:${trip.budget ? '14px' : '0'}">
+      <div class="stat-box"><div class="val">${exps.length}</div><div class="lbl">Expenses</div></div>
+      <div class="stat-box"><div class="val">${dur || '—'}</div><div class="lbl">Days</div></div>
+      <div class="stat-box"><div class="val">${dailyAvg !== '—' ? trip.currency + ' ' + dailyAvg : '—'}</div><div class="lbl">Daily Avg</div></div>
+      <div class="stat-box"><div class="val">${med ? trip.currency + ' ' + med.amount.toFixed(2) : '—'}</div><div class="lbl">Biggest Day</div></div>
+      <div class="stat-box"><div class="val">${med ? med.date : '—'}</div><div class="lbl">On</div></div>
+      <div class="stat-box"><div class="val">${streak} day${streak !== 1 ? 's' : ''}</div><div class="lbl">Streak</div></div>
+    </div>
+    ${budgetBarHtml(trip.currency, total, trip.budget)}`;
+}
+
+function addExpense() {
+  if (!store.currentTrip) return notify("Select a trip first", "error");
+  const title = document.getElementById("expTitle").value.trim();
+  const amount = parseFloat(document.getElementById("expAmount").value);
+  const cat = document.getElementById("expCat").value;
+  const date = document.getElementById("expDate").value;
+  if (!title || !amount || !date) return notify("Fill all fields", "error");
+  store.trips[store.currentTrip].expenses.push({ title, amount, category: cat, date });
+  saveData(data);
+  document.getElementById("expTitle").value = "";
+  document.getElementById("expAmount").value = "";
+  renderSummary();
+  renderList();
+  notify("Expense added!");
+}
+
+function deleteExpense(i) {
+  store.trips[store.currentTrip].expenses.splice(i, 1);
+  saveData(data);
+  renderSummary();
+  renderList();
+  notify("Expense removed");
+}
+
+function renderList() {
+  const tName = store.currentTrip;
+  const ul = document.getElementById("expList");
+  if (!tName || !store.trips[tName]) { ul.innerHTML = ''; return; }
+  const trip = store.trips[tName];
+  const q = document.getElementById("search").value.toLowerCase();
+  const filtered = trip.expenses.map((e, i) => ({ ...e, i })).filter(e => e.title.toLowerCase().includes(q));
+  if (!filtered.length) {
+    ul.innerHTML = `<div class="empty"><div class="icon">💸</div><p>No expenses found.</p></div>`;
+    return;
+  }
+  ul.innerHTML = filtered.map(e => `
+    <li class="expense-item">
+      <div>
+        <div class="title">${e.title}</div>
+        <div class="meta">${e.category} &nbsp;·&nbsp; ${e.date}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:14px;">
+        <span class="amount">${trip.currency} ${e.amount.toFixed(2)}</span>
+        <button class="danger sm" onclick="deleteExpense(${e.i})">✕</button>
+      </div>
+    </li>`).join('');
+}
+
+// ── EXPORT CSV ─────────────────────────────────────────────
+function exportCSV() {
+  const tName = store.currentTrip;
+  if (!tName) return notify("No trip selected", "error");
+  const trip = store.trips[tName];
+  const total = trip.expenses.reduce((a, e) => a + e.amount, 0);
+  const rows = [['Title','Amount',`Currency (${trip.currency})`,'Category','Date'],
+    ...trip.expenses.map(e => [e.title, e.amount, trip.currency, e.category, e.date]),
+    [], ['TOTAL', total.toFixed(2), trip.currency, '', '']];
+  if (trip.budget) rows.push(['BUDGET', trip.budget, trip.currency, '', '']);
+  const csv = rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = `${tName.replace(/\s+/g,'_')}_expenses.csv`;
+  a.click();
+  notify("CSV exported!");
+}
+
+// ── EXPORT PDF ─────────────────────────────────────────────
+function exportPDF() {
+  const tName = store.currentTrip;
+  if (!tName) return notify("No trip selected", "error");
+  const trip = store.trips[tName];
+  const total = trip.expenses.reduce((a, e) => a + e.amount, 0);
+  const dur = trip.start && trip.end ? Math.ceil((new Date(trip.end) - new Date(trip.start)) / 86400000) : 0;
+  const homeAmt = convert(total, trip.currency, user.base);
+
+  const rows = trip.expenses.map(e => `<tr><td>${e.title}</td><td>${e.category}</td><td>${e.date}</td><td style="text-align:right;font-weight:600;">${trip.currency} ${e.amount.toFixed(2)}</td></tr>`).join('');
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <style>
+    body{font-family:-apple-system,Arial;margin:40px;color:#1a1a1a;}
+    h1{font-size:26px;margin-bottom:4px;letter-spacing:-0.5px;}
+    .sub{color:#666;font-size:14px;margin-bottom:24px;}
+    .stats{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:24px;}
+    .stat{background:#f5f5f7;border-radius:10px;padding:12px 18px;}
+    .stat .v{font-size:18px;font-weight:700;color:#0071e3;}
+    .stat .l{font-size:11px;color:#666;text-transform:uppercase;}
+    table{width:100%;border-collapse:collapse;font-size:13px;}
+    th{background:#f5f5f7;padding:10px;text-align:left;border-bottom:2px solid #ddd;}
+    td{padding:10px;border-bottom:1px solid #eee;}
+    .total td{font-weight:700;background:#f5f5f7;}
+    @media print{button{display:none;}}
+  </style></head><body>
+  <h1>✈️ ${tName}</h1>
+  <div class="sub">${statusLabel(trip.status)}${trip.start?` · ${trip.start} → ${trip.end}`:''}${dur?` · ${dur} days`:''}</div>
+  <div class="stats">
+    <div class="stat"><div class="v">${trip.currency} ${total.toFixed(2)}</div><div class="l">Total Spent</div></div>
+    <div class="stat"><div class="v">≈ ${user.base} ${homeAmt.toFixed(2)}</div><div class="l">Home Currency</div></div>
+    <div class="stat"><div class="v">${trip.expenses.length}</div><div class="l">Expenses</div></div>
+    ${dur?`<div class="stat"><div class="v">${trip.currency} ${(total/dur).toFixed(2)}</div><div class="l">Daily Avg</div></div>`:''}
+    ${trip.budget?`<div class="stat"><div class="v">${trip.currency} ${trip.budget}</div><div class="l">Budget</div></div>`:''}
+  </div>
+  <table>
+    <thead><tr><th>Title</th><th>Category</th><th>Date</th><th style="text-align:right;">Amount</th></tr></thead>
+    <tbody>${rows}<tr class="total"><td colspan="3">TOTAL</td><td style="text-align:right;">${trip.currency} ${total.toFixed(2)}</td></tr></tbody>
+  </table>
+  <p style="margin-top:28px;font-size:12px;color:#999;">Generated by Xpediture · ${new Date().toLocaleDateString()}</p>
+  <script>window.onload=()=>window.print();<\/script>
+  </body></html>`;
+
+  const win = window.open('', '_blank');
+  win.document.write(html);
+  win.document.close();
+  notify("PDF ready!");
+}
+
+function onCurrencyChange() { renderSummary(); }
+
+init();
+</script>
+</body>
+</html>

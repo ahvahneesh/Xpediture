@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Xpediture — Converter</title>
+<link rel="stylesheet" href="shared.css">
+</head>
+<body>
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">X<span>pediture</span></div>
+    <nav>
+      <a href="trips.html" class="nav-link"><span class="icon">✈️</span><span>Trips</span></a>
+      <a href="expenses.html" class="nav-link"><span class="icon">💸</span><span>Expenses</span></a>
+      <a href="analytics.html" class="nav-link"><span class="icon">📊</span><span>Analytics</span></a>
+      <a href="checklist.html" class="nav-link"><span class="icon">🎒</span><span>Checklist</span></a>
+      <a href="converter.html" class="nav-link active"><span class="icon">💱</span><span>Converter</span></a>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="sidebar-user" id="sidebarUser"></div>
+      <div class="currency-row">
+        <label>Home:</label>
+        <select id="sidebarCurrency" style="width:auto;font-size:12px;padding:5px 8px;"></select>
+      </div>
+      <button class="ghost full" style="margin-top:10px;" onclick="logout()"><span>Logout</span></button>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <div class="main-content">
+    <div class="page-header">
+      <h1>Currency Converter</h1>
+      <p id="rateDate">Live exchange rates</p>
+    </div>
+
+    <!-- MAIN CONVERTER -->
+    <div class="card">
+      <h3>💱 Convert</h3>
+      <div class="grid" style="align-items:end;">
+        <div class="field">
+          <label>Amount</label>
+          <input id="convAmount" type="number" placeholder="100" oninput="doConvert()" value="100">
+        </div>
+        <div class="field">
+          <label>From</label>
+          <select id="fromCur" onchange="doConvert()"></select>
+        </div>
+        <div style="display:flex;align-items:flex-end;padding-bottom:2px;">
+          <button class="ghost" onclick="swapCurrencies()" title="Swap" style="padding:11px 16px;font-size:18px;border-radius:12px;">⇄</button>
+        </div>
+        <div class="field">
+          <label>To</label>
+          <select id="toCur" onchange="doConvert()"></select>
+        </div>
+      </div>
+
+      <div id="resultBox" style="
+        background:var(--bg);
+        border:1px solid var(--border);
+        border-radius:14px;
+        padding:20px 24px;
+        margin-top:16px;
+        display:none;">
+        <div style="font-size:13px;color:var(--muted);margin-bottom:6px;">Result</div>
+        <div id="convResult" style="font-family:'DM Mono',monospace;font-size:32px;font-weight:600;color:var(--accent);"></div>
+        <div id="rateInfo" style="font-size:12px;color:var(--muted);margin-top:6px;"></div>
+      </div>
+    </div>
+
+    <!-- RATE TABLE -->
+    <div class="card">
+      <h3>📋 Common Rates vs <span id="baseLabel">USD</span></h3>
+      <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+        <select id="rateBase" onchange="renderRateTable()" style="max-width:200px;"></select>
+      </div>
+      <div class="scroll" style="max-height:360px;">
+        <table id="rateTable" style="width:100%;border-collapse:collapse;font-size:14px;">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border);">
+              <th style="text-align:left;padding:10px 8px;color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;">Currency</th>
+              <th style="text-align:right;padding:10px 8px;color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;">Rate</th>
+              <th style="text-align:right;padding:10px 8px;color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;">100 →</th>
+            </tr>
+          </thead>
+          <tbody id="rateTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- MULTI-CURRENCY BREAKDOWN -->
+    <div class="card">
+      <h3>🌍 Convert to Multiple Currencies</h3>
+      <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:16px;">
+        <div class="field" style="margin:0;flex:1;min-width:150px;">
+          <label>Amount</label>
+          <input id="multiAmount" type="number" placeholder="100" oninput="renderMulti()" value="100">
+        </div>
+        <div class="field" style="margin:0;flex:1;min-width:150px;">
+          <label>From</label>
+          <select id="multiFrom" onchange="renderMulti()"></select>
+        </div>
+      </div>
+      <div id="multiResult"></div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="shared.js"></script>
+<script>
+let user;
+const POPULAR = ['USD','EUR','GBP','JPY','AUD','CAD','CHF','INR','SGD','AED','THB','MXN','HKD','KRW','NZD'];
+
+async function init() {
+  user = requireAuth();
+  if (!user) return;
+  const { rates, currencyNames } = await loadRates();
+  renderSidebarUser(user);
+
+  populateCurrencySelect(document.getElementById("fromCur"), user.base);
+  populateCurrencySelect(document.getElementById("toCur"), "EUR");
+  populateCurrencySelect(document.getElementById("rateBase"), user.base);
+  populateCurrencySelect(document.getElementById("multiFrom"), user.base);
+
+  document.getElementById("rateDate").textContent = `Live rates · Updated today`;
+  doConvert();
+  renderRateTable();
+  renderMulti();
+}
+
+function doConvert() {
+  const amount = parseFloat(document.getElementById("convAmount").value);
+  const from = document.getElementById("fromCur").value;
+  const to = document.getElementById("toCur").value;
+  const result = convert(amount, from, to);
+  const rate = convert(1, from, to);
+
+  const box = document.getElementById("resultBox");
+  box.style.display = 'block';
+  document.getElementById("convResult").textContent = `${result.toFixed(4)} ${to}`;
+  document.getElementById("rateInfo").textContent = `1 ${from} = ${rate.toFixed(6)} ${to}`;
+}
+
+function swapCurrencies() {
+  const fromSel = document.getElementById("fromCur");
+  const toSel = document.getElementById("toCur");
+  const tmp = fromSel.value;
+  fromSel.value = toSel.value;
+  toSel.value = tmp;
+  doConvert();
+}
+
+function renderRateTable() {
+  const base = document.getElementById("rateBase").value;
+  document.getElementById("baseLabel").textContent = base;
+  const codes = Object.keys(_currencyNames).sort();
+  const tbody = document.getElementById("rateTableBody");
+  tbody.innerHTML = codes.filter(c => c !== base).map(c => {
+    const rate = convert(1, base, c);
+    const hundred = convert(100, base, c);
+    return `<tr style="border-bottom:1px solid var(--border);">
+      <td style="padding:10px 8px;">
+        <strong>${c}</strong>
+        <span style="color:var(--muted);font-size:12px;margin-left:6px;">${_currencyNames[c]}</span>
+      </td>
+      <td style="text-align:right;padding:10px 8px;font-family:'DM Mono',monospace;font-size:13px;">${rate.toFixed(4)}</td>
+      <td style="text-align:right;padding:10px 8px;font-family:'DM Mono',monospace;font-size:13px;color:var(--accent);">${hundred.toFixed(2)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderMulti() {
+  const amount = parseFloat(document.getElementById("multiAmount").value) || 0;
+  const from = document.getElementById("multiFrom").value;
+  const container = document.getElementById("multiResult");
+  container.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;">
+    ${POPULAR.filter(c => c !== from).map(c => {
+      const val = convert(amount, from, c);
+      return `<div class="stat-box">
+        <div class="val" style="font-size:18px;">${val.toFixed(2)}</div>
+        <div class="lbl">${c} — ${(_currencyNames[c]||c).split(' ')[0]}</div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>
