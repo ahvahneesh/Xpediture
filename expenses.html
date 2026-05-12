@@ -127,6 +127,7 @@ function renderTripSelect() {
 }
 
 function changeTrip(name) {
+  if (name === "" || name === null || name === undefined) return;
   store.currentTrip = name;
   saveData(data);
   renderSummary();
@@ -136,8 +137,8 @@ function changeTrip(name) {
 function renderSummary() {
   const tName = store.currentTrip;
   const card = document.getElementById("summaryCard");
-  document.getElementById("subTitle").textContent = tName ? `Trip: ${tName}` : "Select a trip below";
-  if (!tName || !store.trips[tName]) {
+  document.getElementById("subTitle").textContent = hasCurrentTrip(store) ? `Trip: ${tName}` : "Select a trip below";
+  if (!hasCurrentTrip(store) || !store.trips[tName]) {
     card.innerHTML = `<div class="empty"><div class="icon">✈️</div><p>No trip selected. <a href="trips.html" style="color:var(--accent)">Go to Trips</a> to create or select one.</p></div>`;
     return;
   }
@@ -173,7 +174,7 @@ function renderSummary() {
 }
 
 function addExpense() {
-  if (!store.currentTrip) return notify("Select a trip first", "error");
+  if (!hasCurrentTrip(store)) return notify("Select a trip first", "error");
   const title = document.getElementById("expTitle").value.trim();
   const amount = parseFloat(document.getElementById("expAmount").value);
   let cat = document.getElementById("expCat").value;
@@ -202,7 +203,7 @@ function deleteExpense(i) {
 function renderList() {
   const tName = store.currentTrip;
   const ul = document.getElementById("expList");
-  if (!tName || !store.trips[tName]) { ul.innerHTML = ''; return; }
+  if (!hasCurrentTrip(store) || !store.trips[tName]) { ul.innerHTML = ''; return; }
   const trip = store.trips[tName];
   const q = document.getElementById("search").value.toLowerCase();
   const filtered = trip.expenses.map((e, i) => ({ ...e, i })).filter(e => e.title.toLowerCase().includes(q));

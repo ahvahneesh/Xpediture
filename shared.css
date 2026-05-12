@@ -375,6 +375,10 @@ button.full { width: 100%; text-align: center; padding: 13px; }
 .currency-row label { margin: 0; white-space: nowrap; }
 .currency-row select { flex: 1; min-width: 0; font-size: 12px; padding: 5px 25px 5px 8px; }
 
+/* ── CONVERTER ───────────────────────────────────────── */
+.converter-row { display: flex; align-items: flex-end; gap: 1rem; width: 100%; }
+.input-group { flex: 1; }
+
 /* ── CHART WRAP ──────────────────────────────────────── */
 .chart-wrap { position: relative; height: 230px; }
 

@@ -125,6 +125,7 @@ function addTrip() {
 }
 
 function selectTrip(name) {
+  if (name === "" || name === null || name === undefined) return;
   store.currentTrip = name;
   saveData(data);
   window.location.href = "expenses.html";

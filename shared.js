@@ -40,6 +40,10 @@ function getUserStore(user) {
   return { data, store: data[user.u] };
 }
 
+function hasCurrentTrip(store) {
+  return store.currentTrip !== "" && store.currentTrip !== null && store.currentTrip !== undefined;
+}
+
 // ── RATES ─────────────────────────────────────────────────
 const FALLBACK_NAMES = { USD: "US Dollar", EUR: "Euro", GBP: "British Pound", JPY: "Japanese Yen", AUD: "Australian Dollar", CAD: "Canadian Dollar", CHF: "Swiss Franc", INR: "Indian Rupee", SGD: "Singapore Dollar", AED: "UAE Dirham", THB: "Thai Baht", MXN: "Mexican Peso", HKD: "Hong Kong Dollar", KRW: "South Korean Won", NZD: "New Zealand Dollar" };
 let _rates = JSON.parse(localStorage.getItem("xp_rates")) || { USD: 1, EUR: 0.85, GBP: 0.74, JPY: 156.8, AUD: 1.38, CAD: 1.37, CHF: 0.78, INR: 94.6, SGD: 1.27, AED: 3.67, THB: 32.2, MXN: 17.2, HKD: 7.83, KRW: 1463, NZD: 1.68 };
