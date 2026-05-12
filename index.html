@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Xpediture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --accent: #c8a96e;
+  --muted: rgba(255,255,255,0.5);
+  --border: rgba(255,255,255,0.12);
+  --error: #f87171;
+}
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: #000;
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+}
+
+/* ── FULLSCREEN VIDEO ─────────────────── */
+video {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+}
+
+.vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  background: radial-gradient(ellipse at center, transparent 35%, rgba(0,0,0,0.6) 100%);
+  pointer-events: none;
+}
+
+/* ── TOP BAR ──────────────────────────── */
+.topbar {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 10;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 26px 40px;
+}
+
+.logo {
+  font-family: 'Playfair Display', serif;
+  font-size: 24px;
+  font-weight: 900;
+  color: #fff;
+  letter-spacing: -0.5px;
+  text-shadow: 0 2px 16px rgba(0,0,0,0.5);
+}
+
+.logo em { font-style: normal; color: var(--accent); }
+
+.topbar-btns { display: flex; gap: 10px; }
+
+.btn-login {
+  padding: 10px 24px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.1);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255,255,255,0.22);
+  color: #fff;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, transform 0.1s;
+}
+
+.btn-login:hover { background: rgba(255,255,255,0.2); border-color: rgba(255,255,255,0.4); }
+.btn-login:active { transform: scale(0.97); }
+
+.btn-signup {
+  padding: 10px 24px;
+  border-radius: 999px;
+  background: var(--accent);
+  border: none;
+  color: #0a0a0f;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s, box-shadow 0.2s;
+  box-shadow: 0 4px 22px rgba(200,169,110,0.45);
+}
+
+.btn-signup:hover { opacity: 0.87; box-shadow: 0 8px 30px rgba(200,169,110,0.55); }
+.btn-signup:active { transform: scale(0.97); }
+
+/* ── CENTER HERO ──────────────────────── */
+.hero-center {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  pointer-events: none;
+  animation: fadeIn 1.6s ease both;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.hero-center h1 {
+  font-family: 'Playfair Display', serif;
+  font-size: clamp(52px, 8vw, 96px);
+  font-weight: 900;
+  color: #fff;
+  line-height: 1.05;
+  letter-spacing: -2px;
+  text-shadow: 0 4px 40px rgba(0,0,0,0.5);
+}
+
+.hero-center h1 em { font-style: normal; color: var(--accent); }
+
+.hero-center p {
+  margin-top: 20px;
+  font-size: 17px;
+  color: rgba(255,255,255,0.6);
+  font-weight: 300;
+  letter-spacing: 0.2px;
+}
+
+/* ── BOTTOM HINT ──────────────────────── */
+.hint {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  color: rgba(255,255,255,0.35);
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  animation: pulse 2.8s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,100% { opacity: 0.35; }
+  50% { opacity: 0.75; }
+}
+
+/* ── MODAL OVERLAY ────────────────────── */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s;
+}
+
+.overlay.open {
+  opacity: 1;
+  pointer-events: all;
+}
+
+.modal {
+  background: rgba(12,12,20,0.93);
+  backdrop-filter: blur(32px);
+  border: 1px solid rgba(200,169,110,0.18);
+  border-radius: 24px;
+  padding: 40px;
+  width: 100%;
+  max-width: 400px;
+  margin: 20px;
+  box-shadow: 0 32px 80px rgba(0,0,0,0.75);
+  transform: translateY(22px) scale(0.97);
+  transition: transform 0.32s cubic-bezier(.22,1,.36,1);
+}
+
+.overlay.open .modal {
+  transform: translateY(0) scale(1);
+}
+
+.modal-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 30px;
+}
+
+.modal-title {
+  font-family: 'Playfair Display', serif;
+  font-size: 22px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.close-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 15px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s, color 0.2s;
+  padding: 0;
+  line-height: 1;
+}
+
+.close-btn:hover { background: rgba(255,255,255,0.15); color: #fff; }
+
+/* FIELDS */
+.field { margin-bottom: 16px; }
+
+.field label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--muted);
+  margin-bottom: 7px;
+}
+
+.field input, .field select {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.06);
+  color: #fff;
+  font-size: 14px;
+  font-family: 'DM Sans', sans-serif;
+  outline: none;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+
+.field input:focus, .field select:focus {
+  border-color: var(--accent);
+  background: rgba(255,255,255,0.09);
+  box-shadow: 0 0 0 3px rgba(200,169,110,0.1);
+}
+
+.field input::placeholder { color: rgba(255,255,255,0.25); }
+.field select option { background: #1a1a2a; color: #fff; }
+
+.submit-btn {
+  width: 100%;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--accent);
+  color: #0a0a0f;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  margin-top: 4px;
+  transition: opacity 0.2s, transform 0.1s, box-shadow 0.2s;
+  box-shadow: 0 4px 20px rgba(200,169,110,0.3);
+  letter-spacing: 0.2px;
+}
+
+.submit-btn:hover { opacity: 0.88; box-shadow: 0 8px 28px rgba(200,169,110,0.45); }
+.submit-btn:active { transform: scale(0.98); }
+
+.error-msg {
+  background: rgba(248,113,113,0.1);
+  border: 1px solid rgba(248,113,113,0.28);
+  color: var(--error);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 13px;
+  margin-bottom: 16px;
+  display: none;
+}
+
+.switch-link {
+  text-align: center;
+  margin-top: 18px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.switch-link span {
+  color: var(--accent);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.switch-link span:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<!-- FULLSCREEN VIDEO -->
+<video autoplay muted loop playsinline>
+  <source src="abcd.mp4" type="video/mp4">
+  <!-- Replace the src above with any travel .mp4 URL you prefer -->
+</video>
+
+<div class="vignette"></div>
+
+<!-- TOP BAR: logo + buttons -->
+<div class="topbar">
+  <div class="logo"><em>X</em>pediture</div>
+  <div class="topbar-btns">
+    <button class="btn-login" onclick="openModal('login')">Log In</button>
+    <button class="btn-signup" onclick="openModal('signup')">Sign Up</button>
+  </div>
+</div>
+
+
+
+<div class="hint">✦ &nbsp; Track every journey &nbsp; ✦</div>
+
+<!-- AUTH MODAL -->
+<div class="overlay" id="overlay" onclick="handleOverlayClick(event)">
+  <div class="modal" id="modal">
+
+    <div class="modal-top">
+      <div class="modal-title" id="modalTitle">Welcome back</div>
+      <button class="close-btn" onclick="closeModal()">✕</button>
+    </div>
+
+    <div id="errorMsg" class="error-msg"></div>
+
+    <!-- LOGIN -->
+    <div id="loginForm">
+      <div class="field">
+        <label>Username</label>
+        <input id="loginU" type="text" placeholder="Enter username" autocomplete="username">
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input id="loginP" type="password" placeholder="Enter password" autocomplete="current-password"
+          onkeydown="if(event.key==='Enter')doLogin()">
+      </div>
+      <button class="submit-btn" onclick="doLogin()">Log In →</button>
+      <div class="switch-link">No account? <span onclick="openModal('signup')">Sign up free</span></div>
+    </div>
+
+    <!-- SIGNUP -->
+    <div id="signupForm" style="display:none;">
+      <div class="field">
+        <label>Username</label>
+        <input id="signupU" type="text" placeholder="Choose a username" autocomplete="username">
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input id="signupP" type="password" placeholder="Create a password" autocomplete="new-password">
+      </div>
+      <div class="field">
+        <label>Home Currency</label>
+        <select id="homeCur"></select>
+      </div>
+      <button class="submit-btn" onclick="doSignup()">Create Account →</button>
+      <div class="switch-link">Have an account? <span onclick="openModal('login')">Log in</span></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+let currencyNames = { USD:"US Dollar",EUR:"Euro",GBP:"British Pound",JPY:"Japanese Yen",INR:"Indian Rupee",AUD:"Australian Dollar",CAD:"Canadian Dollar",CHF:"Swiss Franc",SGD:"Singapore Dollar",AED:"UAE Dirham",THB:"Thai Baht",MXN:"Mexican Peso",BRL:"Brazilian Real",KRW:"South Korean Won",HKD:"Hong Kong Dollar" };
+let users = JSON.parse(localStorage.getItem("xp_users")) || [{ u: "admin", p: "admin123", base: "USD" }];
+
+// Already logged in? skip straight to app
+if (localStorage.getItem("xp_logged")) window.location.href = "trips.html";
+
+async function loadCurrencies() {
+  try {
+    const n = await fetch("https://api.frankfurter.app/currencies").then(x => x.json());
+    currencyNames = n;
+  } catch(e) {}
+  const sel = document.getElementById("homeCur");
+  sel.innerHTML = Object.keys(currencyNames).sort().map(c => `<option value="${c}">${c} — ${currencyNames[c]}</option>`).join('');
+  sel.value = "USD";
+}
+
+function openModal(mode) {
+  document.getElementById("modalTitle").textContent = mode === 'login' ? 'Welcome back' : 'Create account';
+  document.getElementById("loginForm").style.display = mode === 'login' ? 'block' : 'none';
+  document.getElementById("signupForm").style.display = mode === 'signup' ? 'block' : 'none';
+  hideError();
+  document.getElementById("overlay").classList.add("open");
+  setTimeout(() => {
+    const id = mode === 'login' ? 'loginU' : 'signupU';
+    document.getElementById(id).focus();
+  }, 330);
+}
+
+function closeModal() {
+  document.getElementById("overlay").classList.remove("open");
+  hideError();
+}
+
+function handleOverlayClick(e) {
+  if (e.target === document.getElementById("overlay")) closeModal();
+}
+
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+
+function doLogin() {
+  const u = document.getElementById("loginU").value.trim();
+  const p = document.getElementById("loginP").value.trim();
+  if (!u || !p) return showError("Please fill in all fields.");
+  const user = users.find(x => x.u === u && x.p === p);
+  if (!user) return showError("Invalid username or password.");
+  localStorage.setItem("xp_logged", JSON.stringify(user));
+  let data = JSON.parse(localStorage.getItem("xp_data")) || {};
+  if (!data[user.u]) { data[user.u] = { trips: {}, currentTrip: "" }; localStorage.setItem("xp_data", JSON.stringify(data)); }
+  window.location.href = "trips.html";
+}
+
+function doSignup() {
+  const u = document.getElementById("signupU").value.trim();
+  const p = document.getElementById("signupP").value.trim();
+  const base = document.getElementById("homeCur").value;
+  if (!u || !p) return showError("Please fill in all fields.");
+  if (u.length < 3) return showError("Username must be at least 3 characters.");
+  if (p.length < 4) return showError("Password must be at least 4 characters.");
+  if (users.find(x => x.u === u)) return showError("Username already taken.");
+  const newUser = { u, p, base };
+  users.push(newUser);
+  localStorage.setItem("xp_users", JSON.stringify(users));
+  localStorage.setItem("xp_logged", JSON.stringify(newUser));
+  let data = JSON.parse(localStorage.getItem("xp_data")) || {};
+  data[u] = { trips: {}, currentTrip: "" };
+  localStorage.setItem("xp_data", JSON.stringify(data));
+  window.location.href = "trips.html";
+}
+
+function showError(msg) { const el = document.getElementById("errorMsg"); el.textContent = msg; el.style.display = "block"; }
+function hideError() { document.getElementById("errorMsg").style.display = "none"; }
+
+loadCurrencies();
+</script>
+</body>
+</html>
