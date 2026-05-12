@@ -80,7 +80,10 @@
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
         <h3 style="margin:0;">🎒 Items</h3>
-        <button class="ghost sm" onclick="clearDone()" id="clearDoneBtn" style="display:none;">Clear Done</button>
+        <div style="display:flex;gap:8px;">
+          <button class="ghost sm" onclick="clearDone()" id="clearDoneBtn" style="display:none;">Clear Done</button>
+          <button class="danger sm" onclick="clearAll()" id="clearAllBtn" style="display:none;">Clear All</button>
+        </div>
       </div>
 
       <!-- FILTER TABS -->
@@ -153,17 +156,17 @@ function addTemplate(type) {
   const existing = trip.checklist.map(x => x.text.toLowerCase());
   let added = 0;
 
-  const tags = {
-    essentials: '🗂 Essentials',
-    clothes: '👕 Clothes',
-    tech: '💻 Tech',
-    beach: '🏖 Beach',
-    health: '💊 Health'
+  const emojis = {
+    essentials: '🗂',
+    clothes: '👕',
+    tech: '💻',
+    beach: '🏖',
+    health: '💊'
   };
-  const prefix = `[${tags[type]}] `;
+  const emojiPrefix = `<span style="font-size: 1.2em; font-weight: bold; margin-right: 6px;">${emojis[type]}</span>`;
 
   TEMPLATES[type].forEach(item => {
-    const taggedItem = prefix + item;
+    const taggedItem = emojiPrefix + item;
     if (!existing.includes(taggedItem.toLowerCase())) {
       trip.checklist.push({ text: taggedItem, done: false });
       added++;
@@ -195,6 +198,14 @@ function clearDone() {
   notify("Cleared packed items");
 }
 
+function clearAll() {
+  if (!confirm("Clear the entire checklist?")) return;
+  store.trips[store.currentTrip].checklist = [];
+  saveData(data);
+  renderChecklist();
+  notify("List cleared");
+}
+
 function setFilter(f) {
   currentFilter = f;
   ['All','Todo','Done'].forEach(n => {
@@ -224,8 +235,9 @@ function renderChecklist() {
   document.getElementById("progressLabel").textContent = `${done} / ${list.length} packed (${pct}%)`;
   document.getElementById("progressBar").style.width = pct + '%';
 
-  // Clear done button
+  // Clear buttons
   document.getElementById("clearDoneBtn").style.display = done > 0 ? 'block' : 'none';
+  document.getElementById("clearAllBtn").style.display = list.length > 0 ? 'block' : 'none';
 
   // Filter
   const filtered = list.map((item, i) => ({ ...item, i })).filter(item => {

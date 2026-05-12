@@ -10,6 +10,7 @@ function toggleTheme() {
   const next = current === "light" ? "dark" : "light";
   document.documentElement.setAttribute("data-theme", next);
   localStorage.setItem("xp_theme", next);
+  document.dispatchEvent(new Event('themeChanged'));
 }
 
 // ── AUTH GUARD ────────────────────────────────────────────

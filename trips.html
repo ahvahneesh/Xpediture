@@ -155,7 +155,7 @@ function renderTrips() {
     const homeAmt = convert(total, trip.currency, user.base);
 
     return `<div class="trip-card ${isActive ? 'active' : ''}">
-      ${trip.cover ? `<img src="${trip.cover}" class="cover-img" onerror="this.style.display='none'">` : ''}
+      ${trip.cover ? `<img src="${trip.cover}" class="cover-img" onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1436491865332-7a61a109cc05?auto=format&fit=crop&w=600&q=80';">` : ''}
       <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;">
         <div>
           <div style="font-size:16px;font-weight:700;margin-bottom:6px;">${name}</div>

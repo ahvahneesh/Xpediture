@@ -100,9 +100,9 @@ function changeTrip(name) {
 }
 
 function renderAnalytics() {
-  const styles = getComputedStyle(document.body);
-  Chart.defaults.color = styles.getPropertyValue('--muted').trim();
-  Chart.defaults.borderColor = styles.getPropertyValue('--border').trim();
+  const root = getComputedStyle(document.documentElement);
+  Chart.defaults.color = root.getPropertyValue('--text').trim() || '#606080';
+  Chart.defaults.borderColor = root.getPropertyValue('--border').trim() || '#1e1e2e';
 
   const tName = store.currentTrip;
   const statsRow = document.getElementById("statsRow");
@@ -214,6 +214,7 @@ function renderAnalytics() {
 function onCurrencyChange() { renderAnalytics(); }
 
 init();
+document.addEventListener('themeChanged', renderAnalytics);
 </script>
 </body>
 </html>
