@@ -58,6 +58,9 @@ class ChecklistItem(db.Model):
 @app.route('/auth/register', methods=['POST'])
 def register():
     data = request.json
+    if User.query.filter_by(username=data['username']).first():
+        return jsonify({"error": "Username already exists"}), 400
+        
     hashed_pw = generate_password_hash(data['password'])
     new_user = User(username=data['username'], password=hashed_pw, home_currency=data.get('home_currency', 'USD'))
     db.session.add(new_user)
@@ -70,13 +73,21 @@ def login():
     user = User.query.filter_by(username=data['username']).first()
     if user and check_password_hash(user.password, data['password']):
         session['user_id'] = user.id
-        return jsonify({"u": user.username, "base": user.home_currency})
+        return jsonify({
+            "id": user.id, 
+            "username": user.username, 
+            "home_currency": user.home_currency
+        })
     return jsonify({"error": "Invalid credentials"}), 401
 
 # Trips API
 @app.route('/api/trips', methods=['GET', 'POST'])
 def manage_trips():
-    uid = session.get('user_id')
+    # Check URL first, then JSON body, then session
+    uid = request.args.get('user_id') or session.get('user_id')
+    if request.is_json and not uid:
+        uid = request.json.get('user_id')
+        
     if not uid: return jsonify({"error": "Unauthorized"}), 401
     
     if request.method == 'POST':
@@ -90,21 +101,67 @@ def manage_trips():
         return jsonify({"message": "Trip created", "id": new_trip.id}), 201
     
     trips = Trip.query.filter_by(user_id=uid).all()
-    return jsonify([{ "id": t.id, "name": t.name, "currency": t.currency_code, "status": t.status, "budget": float(t.budget), "cover": t.cover_url } for t in trips])
+    result = []
+    for t in trips:
+        expenses = Expense.query.filter_by(trip_id=t.id).all()
+        total_spent = sum([float(e.amount) for e in expenses])
+        result.append({ 
+            "id": t.id, 
+            "name": t.name, 
+            "currency_code": t.currency_code, 
+            "status": t.status, 
+            "start_date": t.start_date,
+            "end_date": t.end_date,
+            "budget": float(t.budget) if t.budget else 0, 
+            "cover_url": t.cover_url,
+            "total_spent": total_spent
+        })
+    return jsonify(result)
+
+# THE MISSING DELETE ROUTE
+@app.route('/api/trips/<int:trip_id>', methods=['DELETE'])
+def delete_trip(trip_id):
+    trip = Trip.query.get(trip_id)
+    if trip:
+        db.session.delete(trip)
+        db.session.commit()
+        return jsonify({"message": "Deleted"}), 200
+    return jsonify({"error": "Not found"}), 404
 
 # Expenses API
 @app.route('/api/expenses/<int:trip_id>', methods=['GET', 'POST'])
 def manage_expenses(trip_id):
     if request.method == 'POST':
         data = request.json
+        cat_name = data.get('category_name')
+        cat_id = None
+        
+        # If a category is sent, find its ID or create it dynamically in the DB!
+        if cat_name:
+            category = Category.query.filter_by(name=cat_name).first()
+            if not category:
+                category = Category(name=cat_name)
+                db.session.add(category)
+                db.session.commit() # Save to generate the ID
+            cat_id = category.id
+
         new_exp = Expense(trip_id=trip_id, title=data['title'], amount=data['amount'], 
-                          category_id=data.get('category_id'), date=data['date'])
+                          category_id=cat_id, date=data['date'])
         db.session.add(new_exp)
         db.session.commit()
         return jsonify({"message": "Expense added"}), 201
     
     exps = db.session.query(Expense, Category.name).outerjoin(Category).filter(Expense.trip_id == trip_id).all()
     return jsonify([{ "id": e[0].id, "title": e[0].title, "amount": float(e[0].amount), "category": e[1], "date": e[0].date } for e in exps])
+
+@app.route('/api/expenses/delete/<int:expense_id>', methods=['DELETE'])
+def delete_expense(expense_id):
+    exp = Expense.query.get(expense_id)
+    if exp:
+        db.session.delete(exp)
+        db.session.commit()
+        return jsonify({"message": "Expense deleted"}), 200
+    return jsonify({"error": "Expense not found"}), 404
 
 # Checklist API
 @app.route('/api/checklist/<int:trip_id>', methods=['GET', 'POST'])
@@ -118,6 +175,23 @@ def manage_checklist(trip_id):
     
     items = ChecklistItem.query.filter_by(trip_id=trip_id).all()
     return jsonify([{ "id": i.id, "item_text": i.item_text, "is_done": i.is_done } for i in items])
+
+@app.route('/api/checklist/item/<int:item_id>', methods=['PUT', 'DELETE'])
+def modify_checklist_item(item_id):
+    item = ChecklistItem.query.get(item_id)
+    if not item: return jsonify({"error": "Item not found"}), 404
+    
+    if request.method == 'PUT':
+        data = request.json
+        if 'is_done' in data:
+            item.is_done = data['is_done']
+        db.session.commit()
+        return jsonify({"message": "Item updated"}), 200
+        
+    if request.method == 'DELETE':
+        db.session.delete(item)
+        db.session.commit()
+        return jsonify({"message": "Item deleted"}), 200
 
 if __name__ == '__main__':
     with app.app_context():

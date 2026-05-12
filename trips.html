@@ -88,94 +88,128 @@
 <div id="toast"></div>
 <script src="shared.js"></script>
 <script>
-let user, data, store;
+let user;
+let trips = [];
 
 async function init() {
   user = requireAuth();
   if (!user) return;
   await loadRates();
   renderSidebarUser(user);
-  const res = getUserStore(user);
-  data = res.data; store = res.store;
-  populateCurrencySelect(document.getElementById("tripCurrency"), "EUR");
+  
+  // Set default currency to the user's saved preference
+  populateCurrencySelect(document.getElementById("tripCurrency"), user.home_currency || "USD");
+  await refreshData();
+}
+
+async function refreshData() {
+  // Fetch from Flask using the real database user.id
+  trips = await getTrips(user.id);
   renderTrips();
 }
 
-function addTrip() {
+async function addTrip() {
   const name = document.getElementById("tripName").value.trim();
   if (!name) return notify("Enter a trip name", "error");
-  if (store.trips[name]) return notify("Trip name already exists", "error");
-  store.trips[name] = {
-    currency: document.getElementById("tripCurrency").value,
+  
+  // Create payload matching your schema.sql exactly
+  const payload = {
+    user_id: user.id, // Crucial: ties the trip to the logged-in user
+    name: name,
+    currency_code: document.getElementById("tripCurrency").value,
     status: document.getElementById("tripStatus").value,
-    start: document.getElementById("tripStart").value,
-    end: document.getElementById("tripEnd").value,
+    start_date: document.getElementById("tripStart").value,
+    end_date: document.getElementById("tripEnd").value,
     budget: parseFloat(document.getElementById("tripBudget").value) || 0,
-    cover: document.getElementById("tripCover").value.trim(),
-    expenses: [],
-    checklist: []
+    cover_url: document.getElementById("tripCover").value.trim()
   };
-  store.currentTrip = name;
-  saveData(data);
-  document.getElementById("tripName").value = "";
-  document.getElementById("tripBudget").value = "";
-  document.getElementById("tripCover").value = "";
-  renderTrips();
-  notify(`Trip "${name}" created!`);
+
+  const res = await apiFetch(`/api/trips?user_id=${user.id}`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+
+  if (res && res.ok) {
+    document.getElementById("tripName").value = "";
+    document.getElementById("tripBudget").value = "";
+    document.getElementById("tripCover").value = "";
+    await refreshData();
+    notify(`Trip "${name}" created!`);
+  } else {
+    notify("Failed to create trip. Check server logs.", "error");
+  }
 }
 
-function selectTrip(name) {
-  if (name === "" || name === null || name === undefined) return;
-  store.currentTrip = name;
-  saveData(data);
+function selectTrip(id) {
+  // Save the SQL Primary Key (id) to load the correct expenses later
+  localStorage.setItem("xp_current_trip_id", id);
   window.location.href = "expenses.html";
 }
 
-function deleteTrip(name) {
+async function deleteTrip(id, name) {
   if (!confirm(`Delete trip "${name}" and all its data?`)) return;
-  delete store.trips[name];
-  const rem = Object.keys(store.trips);
-  store.currentTrip = rem.length ? rem[0] : "";
-  saveData(data);
-  renderTrips();
-  notify("Trip deleted");
+  
+  // Send DELETE command to Flask (DML Implementation!)
+  const res = await apiFetch(`/api/trips/${id}`, { method: 'DELETE' });
+  
+  if (res && res.ok) {
+    if (localStorage.getItem("xp_current_trip_id") == id) {
+      localStorage.removeItem("xp_current_trip_id");
+    }
+    await refreshData();
+    notify("Trip deleted");
+  } else {
+    notify("Error deleting trip.", "error");
+  }
 }
 
 function renderTrips() {
   const container = document.getElementById("tripList");
-  const trips = Object.keys(store.trips);
-  if (!trips.length) {
+  
+  if (!trips || !trips.length) {
     container.innerHTML = `<div class="empty"><div class="icon">✈️</div><p>No trips yet. Create your first trip above!</p></div>`;
     return;
   }
-  container.innerHTML = trips.map(name => {
-    const trip = store.trips[name];
-    const total = trip.expenses.reduce((a, e) => a + e.amount, 0);
-    const isActive = name === store.currentTrip;
-    const dur = trip.start && trip.end ? Math.ceil((new Date(trip.end) - new Date(trip.start)) / 86400000) : 0;
-    const homeAmt = convert(total, trip.currency, user.base);
+
+  const currentTripId = parseInt(localStorage.getItem("xp_current_trip_id"));
+
+  container.innerHTML = trips.map(trip => {
+    const expenseList = trip.expenses || [];
+    const total = expenseList.reduce((a, e) => a + parseFloat(e.amount), 0) || trip.total_spent || 0;
+    const isActive = trip.id === currentTripId;
+    
+    let dur = 0;
+    if (trip.start_date && trip.end_date) {
+      dur = Math.ceil((new Date(trip.end_date) - new Date(trip.start_date)) / 86400000);
+    }
+    
+    const homeAmt = convert(total, trip.currency_code, user.home_currency || 'USD');
+
+    // THE FIX: Define the fallback image and use it if cover_url is empty
+    const fallbackImg = 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?auto=format&fit=crop&w=600&q=80';
+    const displayImage = trip.cover_url ? trip.cover_url : fallbackImg;
 
     return `<div class="trip-card ${isActive ? 'active' : ''}">
-      ${trip.cover ? `<img src="${trip.cover}" class="cover-img" onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1436491865332-7a61a109cc05?auto=format&fit=crop&w=600&q=80';">` : ''}
+      <img src="${displayImage}" class="cover-img" onerror="this.onerror=null; this.src='${fallbackImg}';">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;">
         <div>
-          <div style="font-size:16px;font-weight:700;margin-bottom:6px;">${name}</div>
+          <div style="font-size:16px;font-weight:700;margin-bottom:6px;">${trip.name}</div>
           <span class="badge ${trip.status}">${statusLabel(trip.status)}</span>
           <div style="margin-top:8px;">
-            ${dur ? `<div style="font-size:12px;color:var(--muted);">📅 ${trip.start} → ${trip.end} &nbsp;·&nbsp; ${dur} days</div>` : ''}
-            <div style="font-size:12px;color:var(--muted);margin-top:3px;">${trip.currency} &nbsp;·&nbsp; ${trip.expenses.length} expenses</div>
+            ${dur ? `<div style="font-size:12px;color:var(--muted);">📅 ${trip.start_date} → ${trip.end_date} &nbsp;·&nbsp; ${dur} days</div>` : ''}
+            <div style="font-size:12px;color:var(--muted);margin-top:3px;">${trip.currency_code} &nbsp;·&nbsp; ${expenseList.length} expenses</div>
           </div>
         </div>
         <div style="text-align:right;">
-          <div style="font-family:'DM Mono',monospace;font-size:22px;font-weight:600;color:var(--accent);">${trip.currency} ${total.toFixed(2)}</div>
-          <div style="font-size:12px;color:var(--muted);margin-top:2px;">≈ ${user.base} ${homeAmt.toFixed(2)}</div>
+          <div style="font-family:'DM Mono',monospace;font-size:22px;font-weight:600;color:var(--accent);">${trip.currency_code} ${total.toFixed(2)}</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px;">≈ ${user.home_currency || 'USD'} ${homeAmt.toFixed(2)}</div>
           <div style="display:flex;gap:8px;margin-top:10px;justify-content:flex-end;">
-            <button class="sm" onclick="selectTrip('${name}')">Open →</button>
-            <button class="danger sm" onclick="deleteTrip('${name}')">Delete</button>
+            <button class="sm" onclick="selectTrip(${trip.id})">Open →</button>
+            <button class="danger sm" onclick="deleteTrip(${trip.id}, '${trip.name.replace(/'/g, "\\'")}')">Delete</button>
           </div>
         </div>
       </div>
-      ${budgetBarHtml(trip.currency, total, trip.budget)}
+      ${budgetBarHtml(trip.currency_code, total, trip.budget)}
     </div>`;
   }).join('');
 }

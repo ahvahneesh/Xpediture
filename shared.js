@@ -13,10 +13,17 @@ function toggleTheme() {
   document.dispatchEvent(new Event('themeChanged'));
 }
 
+// Ensure this matches your Flask port!
+const API_BASE = "http://127.0.0.1:5000";
+
 // ── AUTH GUARD ────────────────────────────────────────────
 function requireAuth() {
+  // We keep the logged-in user here as a "session token"
   const user = JSON.parse(localStorage.getItem("xp_logged"));
-  if (!user) { window.location.href = "index.html"; return null; }
+  if (!user) { 
+    window.location.href = "index.html"; 
+    return null; 
+  }
   return user;
 }
 
@@ -25,26 +32,45 @@ function logout() {
   window.location.href = "index.html";
 }
 
-// ── DATA HELPERS ──────────────────────────────────────────
-function getData() {
-  return JSON.parse(localStorage.getItem("xp_data")) || {};
+// ── DATA HELPERS (Connected to Flask SQL) ─────────────────
+async function apiFetch(path, options = {}) {
+  options.headers = { 
+    ...options.headers, 
+    'Content-Type': 'application/json' 
+  };
+  
+  try {
+    const res = await fetch(`${API_BASE}${path}`, options);
+    // If Flask says unauthorized, log the user out
+    if (res.status === 401 && !path.includes('/auth/')) {
+      logout();
+      return null;
+    }
+    return res;
+  } catch (error) {
+    console.error("Backend connection error:", error);
+    notify("Cannot connect to server. Is app.py running?", "error");
+    return null;
+  }
 }
 
-function saveData(data) {
-  localStorage.setItem("xp_data", JSON.stringify(data));
+// Fetch wrappers
+async function getTrips(userId) {
+  const res = await apiFetch(`/api/trips?user_id=${userId}`);
+  return res ? res.json() : [];
 }
 
-function getUserStore(user) {
-  const data = getData();
-  if (!data[user.u]) data[user.u] = { trips: {}, currentTrip: "" };
-  return { data, store: data[user.u] };
+async function getExpenses(tripId) {
+  const res = await apiFetch(`/api/expenses/${tripId}`);
+  return res ? res.json() : [];
 }
 
-function hasCurrentTrip(store) {
-  return store.currentTrip !== "" && store.currentTrip !== null && store.currentTrip !== undefined;
+async function getChecklist(tripId) {
+  const res = await apiFetch(`/api/checklist/${tripId}`);
+  return res ? res.json() : [];
 }
 
-// ── RATES ─────────────────────────────────────────────────
+// ── RATES API ─────────────────────────────────────────────
 const FALLBACK_NAMES = { USD: "US Dollar", EUR: "Euro", GBP: "British Pound", JPY: "Japanese Yen", AUD: "Australian Dollar", CAD: "Canadian Dollar", CHF: "Swiss Franc", INR: "Indian Rupee", SGD: "Singapore Dollar", AED: "UAE Dirham", THB: "Thai Baht", MXN: "Mexican Peso", HKD: "Hong Kong Dollar", KRW: "South Korean Won", NZD: "New Zealand Dollar" };
 let _rates = JSON.parse(localStorage.getItem("xp_rates")) || { USD: 1, EUR: 0.85, GBP: 0.74, JPY: 156.8, AUD: 1.38, CAD: 1.37, CHF: 0.78, INR: 94.6, SGD: 1.27, AED: 3.67, THB: 32.2, MXN: 17.2, HKD: 7.83, KRW: 1463, NZD: 1.68 };
 let _currencyNames = JSON.parse(localStorage.getItem("xp_cnames")) || { ...FALLBACK_NAMES };
@@ -54,7 +80,6 @@ async function loadRates() {
     const res = await fetch("https://open.er-api.com/v6/latest/USD").then(x => x.json());
     if (res.result === "success") {
       _rates = res.rates;
-      // Merge API keys into fallback names
       const merged = { ...FALLBACK_NAMES };
       Object.keys(_rates).forEach(c => { if (!merged[c]) merged[c] = c; });
       _currencyNames = merged;
@@ -72,23 +97,20 @@ function convert(amount, from, to) {
   return (amount / _rates[from]) * _rates[to];
 }
 
-// ── POPULATE CURRENCY SELECT ──────────────────────────────
 function populateCurrencySelect(el, selectedVal) {
   const codes = Object.keys(_currencyNames).sort();
   el.innerHTML = codes.map(c => {
     const name = _currencyNames[c] || c;
     const display = name.length > 16 ? name.substring(0, 13) + "..." : name;
-    return `<option value="${c}">${c} — ${display}</option>`;
+    return `<option value="${c}" ${c === selectedVal ? 'selected' : ''}>${c} — ${display}</option>`;
   }).join('');
-  if (selectedVal) el.value = selectedVal;
 }
 
-// ── STATUS LABEL ──────────────────────────────────────────
+// ── UI WIDGETS & FORMATTING ───────────────────────────────
 function statusLabel(s) {
   return s === 'planned' ? '📅 Planned' : s === 'ongoing' ? '🟢 Ongoing' : '✅ Completed';
 }
 
-// ── TOAST ─────────────────────────────────────────────────
 function notify(msg, type = "success") {
   const t = document.getElementById("toast");
   if (!t) return;
@@ -99,26 +121,32 @@ function notify(msg, type = "success") {
   setTimeout(() => t.classList.remove("show"), 3000);
 }
 
-// ── RENDER SIDEBAR USER ───────────────────────────────────
 function renderSidebarUser(user) {
   const el = document.getElementById("sidebarUser");
-  if (el) el.innerHTML = `<strong>${user.u}</strong>${user.base}`;
+  // Supports legacy 'u'/'base' keys and new SQL 'username'/'home_currency' keys
+  if (el) el.innerHTML = `<strong>${user.username || user.u}</strong>${user.home_currency || user.base}`;
+  
   const cur = document.getElementById("sidebarCurrency");
   if (cur) {
-    populateCurrencySelect(cur, user.base);
-    cur.onchange = () => {
-      user.base = cur.value;
+    populateCurrencySelect(cur, user.home_currency || user.base);
+    cur.onchange = async () => {
+      const newCurrency = cur.value;
+      user.home_currency = newCurrency;
+      user.base = newCurrency; 
       localStorage.setItem("xp_logged", JSON.stringify(user));
-      const users = JSON.parse(localStorage.getItem("xp_users")) || [];
-      const idx = users.findIndex(x => x.u === user.u);
-      if (idx >= 0) { users[idx].base = user.base; localStorage.setItem("xp_users", JSON.stringify(users)); }
-      notify(`Home currency: ${user.base}`);
-      if (typeof onCurrencyChange === 'function') onCurrencyChange();
+      
+      // Send the update to the SQL Database via Flask
+      await apiFetch(`/api/users/${user.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ home_currency: newCurrency })
+      });
+
+      notify(`Home currency: ${newCurrency}`);
+      if (typeof window.onCurrencyChange === 'function') window.onCurrencyChange();
     };
   }
 }
 
-// ── BUDGET BAR HTML ───────────────────────────────────────
 function budgetBarHtml(cur, total, budget) {
   if (!budget) return '';
   const pct = Math.min(100, (total / budget) * 100);
@@ -132,8 +160,8 @@ function budgetBarHtml(cur, total, budget) {
   </div>`;
 }
 
-// ── SPENDING STREAK ───────────────────────────────────────
 function spendingStreak(expenses) {
+  if (!expenses || expenses.length === 0) return 0;
   const expDays = [...new Set(expenses.map(e => e.date).filter(Boolean))].sort();
   let maxStreak = 0, cur = 0;
   for (let i = 0; i < expDays.length; i++) {
@@ -143,10 +171,10 @@ function spendingStreak(expenses) {
   return maxStreak;
 }
 
-// ── MOST EXPENSIVE DAY ────────────────────────────────────
 function mostExpensiveDay(expenses) {
+  if (!expenses || expenses.length === 0) return null;
   const byDay = {};
-  expenses.forEach(e => { if (e.date) byDay[e.date] = (byDay[e.date] || 0) + e.amount; });
+  expenses.forEach(e => { if (e.date) byDay[e.date] = (byDay[e.date] || 0) + parseFloat(e.amount); });
   const maxDay = Object.keys(byDay).sort((a, b) => byDay[b] - byDay[a])[0];
   return maxDay ? { date: maxDay, amount: byDay[maxDay] } : null;
 }

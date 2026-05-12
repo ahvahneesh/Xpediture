@@ -101,16 +101,37 @@
 <div id="toast"></div>
 <script src="shared.js"></script>
 <script>
-let user, data, store;
+let user;
+let trips = [], expenses = [], currentTrip = null;
 
 async function init() {
   user = requireAuth();
   if (!user) return;
   await loadRates();
   renderSidebarUser(user);
-  const res = getUserStore(user);
-  data = res.data; store = res.store;
-  document.getElementById("expDate").valueAsDate = new Date();
+  
+  const dateInput = document.getElementById("expDate");
+  if (dateInput) dateInput.valueAsDate = new Date();
+  
+  await refreshData();
+}
+
+async function refreshData() {
+  // 1. Fetch all trips for this user
+  trips = await getTrips(user.id);
+  
+  // 2. Figure out which trip we are looking at
+  const savedId = localStorage.getItem("xp_current_trip_id");
+  currentTrip = trips.find(t => t.id == savedId) || trips[0];
+  
+  // 3. Fetch the specific expenses for this trip
+  if (currentTrip) {
+    localStorage.setItem("xp_current_trip_id", currentTrip.id);
+    expenses = await getExpenses(currentTrip.id);
+  } else {
+    expenses = [];
+  }
+  
   renderTripSelect();
   renderSummary();
   renderList();
@@ -118,140 +139,164 @@ async function init() {
 
 function renderTripSelect() {
   const sel = document.getElementById("tripSelect");
-  const trips = Object.keys(store.trips);
-  if (!trips.length) {
+  if (!trips || !trips.length) {
     sel.innerHTML = `<option value="">No trips — create one first</option>`;
     return;
   }
-  sel.innerHTML = trips.map(t => `<option value="${t}" ${t === store.currentTrip ? 'selected' : ''}>${t}</option>`).join('');
+  sel.innerHTML = trips.map(t => `<option value="${t.id}" ${currentTrip && t.id === currentTrip.id ? 'selected' : ''}>${t.name}</option>`).join('');
 }
 
-function changeTrip(name) {
-  if (name === "" || name === null || name === undefined) return;
-  store.currentTrip = name;
-  saveData(data);
-  renderSummary();
-  renderList();
+async function changeTrip() {
+  const sel = document.getElementById("tripSelect");
+  const id = sel.value;
+  if (!id) return;
+  
+  localStorage.setItem("xp_current_trip_id", id);
+  await refreshData();
 }
 
 function renderSummary() {
-  const tName = store.currentTrip;
   const card = document.getElementById("summaryCard");
-  document.getElementById("subTitle").textContent = hasCurrentTrip(store) ? `Trip: ${tName}` : "Select a trip below";
-  if (!hasCurrentTrip(store) || !store.trips[tName]) {
-    card.innerHTML = `<div class="empty"><div class="icon">✈️</div><p>No trip selected. <a href="trips.html" style="color:var(--accent)">Go to Trips</a> to create or select one.</p></div>`;
+  document.getElementById("subTitle").textContent = currentTrip ? `Trip: ${currentTrip.name}` : "Select a trip below";
+  
+  if (!currentTrip) {
+    card.innerHTML = `<div class="empty"><div class="icon">✈️</div><p>No trip selected. <a href="trips.html" style="color:var(--accent)">Go to Trips</a> to create one.</p></div>`;
     return;
   }
-  const trip = store.trips[tName];
-  const exps = trip.expenses;
-  const total = exps.reduce((a, e) => a + e.amount, 0);
-  const dur = trip.start && trip.end ? Math.ceil((new Date(trip.end) - new Date(trip.start)) / 86400000) : 0;
+  
+  // Calculate stats from the live SQL data
+  const total = expenses.reduce((a, e) => a + parseFloat(e.amount), 0);
+  let dur = 0;
+  if (currentTrip.start_date && currentTrip.end_date) {
+    dur = Math.ceil((new Date(currentTrip.end_date) - new Date(currentTrip.start_date)) / 86400000);
+  }
+  
   const dailyAvg = dur > 0 ? (total / dur).toFixed(2) : '—';
-  const homeAmt = convert(total, trip.currency, user.base);
-  const med = mostExpensiveDay(exps);
-  const streak = spendingStreak(exps);
+  const homeAmt = convert(total, currentTrip.currency_code, user.home_currency || user.base || 'USD');
+  const med = mostExpensiveDay(expenses);
+  const streak = spendingStreak(expenses);
 
   card.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
       <div>
-        <div style="font-size:18px;font-weight:700;">${tName}</div>
-        <span class="badge ${trip.status}">${statusLabel(trip.status)}</span>
+        <div style="font-size:18px;font-weight:700;">${currentTrip.name}</div>
+        <span class="badge ${currentTrip.status}">${statusLabel(currentTrip.status)}</span>
       </div>
       <div style="text-align:right;">
-        <div style="font-family:'DM Mono',monospace;font-size:26px;font-weight:600;color:var(--accent);">${trip.currency} ${total.toFixed(2)}</div>
-        <div style="font-size:13px;color:var(--muted);">≈ ${user.base} ${homeAmt.toFixed(2)}</div>
+        <div style="font-family:'DM Mono',monospace;font-size:26px;font-weight:600;color:var(--accent);">${currentTrip.currency_code} ${total.toFixed(2)}</div>
+        <div style="font-size:13px;color:var(--muted);">≈ ${user.home_currency || 'USD'} ${homeAmt.toFixed(2)}</div>
       </div>
     </div>
-    <div class="grid3" style="margin-bottom:${trip.budget ? '14px' : '0'}">
-      <div class="stat-box"><div class="val">${exps.length}</div><div class="lbl">Expenses</div></div>
+    <div class="grid3" style="margin-bottom:${currentTrip.budget ? '14px' : '0'}">
+      <div class="stat-box"><div class="val">${expenses.length}</div><div class="lbl">Expenses</div></div>
       <div class="stat-box"><div class="val">${dur || '—'}</div><div class="lbl">Days</div></div>
-      <div class="stat-box"><div class="val">${dailyAvg !== '—' ? trip.currency + ' ' + dailyAvg : '—'}</div><div class="lbl">Daily Avg</div></div>
-      <div class="stat-box"><div class="val">${med ? trip.currency + ' ' + med.amount.toFixed(2) : '—'}</div><div class="lbl">Biggest Day</div></div>
+      <div class="stat-box"><div class="val">${dailyAvg !== '—' ? currentTrip.currency_code + ' ' + dailyAvg : '—'}</div><div class="lbl">Daily Avg</div></div>
+      <div class="stat-box"><div class="val">${med ? currentTrip.currency_code + ' ' + med.amount.toFixed(2) : '—'}</div><div class="lbl">Biggest Day</div></div>
       <div class="stat-box"><div class="val">${med ? med.date : '—'}</div><div class="lbl">On</div></div>
       <div class="stat-box"><div class="val">${streak} day${streak !== 1 ? 's' : ''}</div><div class="lbl">Streak</div></div>
     </div>
-    ${budgetBarHtml(trip.currency, total, trip.budget)}`;
+    ${budgetBarHtml(currentTrip.currency_code, total, currentTrip.budget)}`;
 }
 
-function addExpense() {
-  if (!hasCurrentTrip(store)) return notify("Select a trip first", "error");
-  const title = document.getElementById("expTitle").value.trim();
+async function addExpense() {
+  if (!currentTrip) return notify("Select a trip first", "error");
+  const titleInput = document.getElementById("expTitle").value.trim();
   const amount = parseFloat(document.getElementById("expAmount").value);
   let cat = document.getElementById("expCat").value;
+  
   if (cat === 'custom') {
     cat = document.getElementById("expCatCustom").value.trim() || "📦 Other";
   }
   const date = document.getElementById("expDate").value;
-  if (!title || !amount || !date) return notify("Fill all fields", "error");
-  store.trips[store.currentTrip].expenses.push({ title, amount, category: cat, date });
-  saveData(data);
-  document.getElementById("expTitle").value = "";
-  document.getElementById("expAmount").value = "";
-  renderSummary();
-  renderList();
-  notify("Expense added!");
+  if (!titleInput || !amount || !date) return notify("Fill all fields", "error");
+
+  const res = await apiFetch(`/api/expenses/${currentTrip.id}`, {
+    method: 'POST',
+    body: JSON.stringify({ 
+      title: titleInput, 
+      amount: amount, 
+      date: date,
+      category_name: cat // THE FIX: Actually sending the category to Flask!
+    })
+  });
+
+  if (res && res.ok) {
+    document.getElementById("expTitle").value = "";
+    document.getElementById("expAmount").value = "";
+    await refreshData();
+    notify("Expense added!");
+  } else {
+    notify("Failed to add expense.", "error");
+  }
 }
 
-function deleteExpense(i) {
-  store.trips[store.currentTrip].expenses.splice(i, 1);
-  saveData(data);
-  renderSummary();
-  renderList();
-  notify("Expense removed");
+async function deleteExpense(expenseId) {
+  if (!confirm("Remove this expense?")) return;
+  const res = await apiFetch(`/api/expenses/delete/${expenseId}`, { method: 'DELETE' });
+  if (res && res.ok) {
+    await refreshData();
+    notify("Expense removed");
+  } else {
+    notify("Failed to delete expense. (Check app.py route!)", "error");
+  }
 }
 
 function renderList() {
-  const tName = store.currentTrip;
   const ul = document.getElementById("expList");
-  if (!hasCurrentTrip(store) || !store.trips[tName]) { ul.innerHTML = ''; return; }
-  const trip = store.trips[tName];
+  if (!currentTrip) { ul.innerHTML = ''; return; }
+  
   const q = document.getElementById("search").value.toLowerCase();
-  const filtered = trip.expenses.map((e, i) => ({ ...e, i })).filter(e => e.title.toLowerCase().includes(q));
+  const filtered = expenses.filter(e => e.title.toLowerCase().includes(q) || (e.category && e.category.toLowerCase().includes(q)));
+  
   if (!filtered.length) {
     ul.innerHTML = `<div class="empty"><div class="icon">💸</div><p>No expenses found.</p></div>`;
     return;
   }
+  
   ul.innerHTML = filtered.map(e => `
     <li class="expense-item">
       <div>
         <div class="title">${e.title}</div>
-        <div class="meta">${e.category} &nbsp;·&nbsp; ${e.date}</div>
+        <div class="meta">${e.date}</div>
       </div>
       <div style="display:flex;align-items:center;gap:14px;">
-        <span class="amount">${trip.currency} ${e.amount.toFixed(2)}</span>
-        <button class="danger sm" onclick="deleteExpense(${e.i})">✕</button>
+        <span class="amount">${currentTrip.currency_code} ${parseFloat(e.amount).toFixed(2)}</span>
+        <button class="danger sm" onclick="deleteExpense(${e.id})">✕</button>
       </div>
     </li>`).join('');
 }
 
+// Ensure the dropdown triggers changeTrip correctly
+document.getElementById("tripSelect").addEventListener("change", changeTrip);
+
 // ── EXPORT CSV ─────────────────────────────────────────────
 function exportCSV() {
-  const tName = store.currentTrip;
-  if (!tName) return notify("No trip selected", "error");
-  const trip = store.trips[tName];
-  const total = trip.expenses.reduce((a, e) => a + e.amount, 0);
-  const rows = [['Title','Amount',`Currency (${trip.currency})`,'Category','Date'],
-    ...trip.expenses.map(e => [e.title, e.amount, trip.currency, e.category, e.date]),
-    [], ['TOTAL', total.toFixed(2), trip.currency, '', '']];
-  if (trip.budget) rows.push(['BUDGET', trip.budget, trip.currency, '', '']);
+  if (!currentTrip) return notify("No trip selected", "error");
+  const total = expenses.reduce((a, e) => a + parseFloat(e.amount), 0);
+  const rows = [['Title','Amount',`Currency (${currentTrip.currency_code})`,'Date'],
+    ...expenses.map(e => [e.title, e.amount, currentTrip.currency_code, e.date]),
+    [], ['TOTAL', total.toFixed(2), currentTrip.currency_code, '']];
+  
+  if (currentTrip.budget) rows.push(['BUDGET', currentTrip.budget, currentTrip.currency_code, '']);
   const csv = rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-  a.download = `${tName.replace(/\s+/g,'_')}_expenses.csv`;
+  a.download = `${currentTrip.name.replace(/\s+/g,'_')}_expenses.csv`;
   a.click();
   notify("CSV exported!");
 }
 
 // ── EXPORT PDF ─────────────────────────────────────────────
 function exportPDF() {
-  const tName = store.currentTrip;
-  if (!tName) return notify("No trip selected", "error");
-  const trip = store.trips[tName];
-  const total = trip.expenses.reduce((a, e) => a + e.amount, 0);
-  const dur = trip.start && trip.end ? Math.ceil((new Date(trip.end) - new Date(trip.start)) / 86400000) : 0;
-  const homeAmt = convert(total, trip.currency, user.base);
+  if (!currentTrip) return notify("No trip selected", "error");
+  const total = expenses.reduce((a, e) => a + parseFloat(e.amount), 0);
+  let dur = 0;
+  if (currentTrip.start_date && currentTrip.end_date) {
+    dur = Math.ceil((new Date(currentTrip.end_date) - new Date(currentTrip.start_date)) / 86400000);
+  }
+  const homeAmt = convert(total, currentTrip.currency_code, user.home_currency || 'USD');
 
-  const rows = trip.expenses.map(e => `<tr><td>${e.title}</td><td>${e.category}</td><td>${e.date}</td><td style="text-align:right;font-weight:600;">${trip.currency} ${e.amount.toFixed(2)}</td></tr>`).join('');
+  const rows = expenses.map(e => `<tr><td>${e.title}</td><td>${e.date}</td><td style="text-align:right;font-weight:600;">${currentTrip.currency_code} ${parseFloat(e.amount).toFixed(2)}</td></tr>`).join('');
 
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
   <style>
@@ -268,18 +313,18 @@ function exportPDF() {
     .total td{font-weight:700;background:#f5f5f7;}
     @media print{button{display:none;}}
   </style></head><body>
-  <h1>✈️ ${tName}</h1>
-  <div class="sub">${statusLabel(trip.status)}${trip.start?` · ${trip.start} → ${trip.end}`:''}${dur?` · ${dur} days`:''}</div>
+  <h1>✈️ ${currentTrip.name}</h1>
+  <div class="sub">${statusLabel(currentTrip.status)}${currentTrip.start_date?` · ${currentTrip.start_date} → ${currentTrip.end_date}`:''}${dur?` · ${dur} days`:''}</div>
   <div class="stats">
-    <div class="stat"><div class="v">${trip.currency} ${total.toFixed(2)}</div><div class="l">Total Spent</div></div>
-    <div class="stat"><div class="v">≈ ${user.base} ${homeAmt.toFixed(2)}</div><div class="l">Home Currency</div></div>
-    <div class="stat"><div class="v">${trip.expenses.length}</div><div class="l">Expenses</div></div>
-    ${dur?`<div class="stat"><div class="v">${trip.currency} ${(total/dur).toFixed(2)}</div><div class="l">Daily Avg</div></div>`:''}
-    ${trip.budget?`<div class="stat"><div class="v">${trip.currency} ${trip.budget}</div><div class="l">Budget</div></div>`:''}
+    <div class="stat"><div class="v">${currentTrip.currency_code} ${total.toFixed(2)}</div><div class="l">Total Spent</div></div>
+    <div class="stat"><div class="v">≈ ${user.home_currency || 'USD'} ${homeAmt.toFixed(2)}</div><div class="l">Home Currency</div></div>
+    <div class="stat"><div class="v">${expenses.length}</div><div class="l">Expenses</div></div>
+    ${dur?`<div class="stat"><div class="v">${currentTrip.currency_code} ${(total/dur).toFixed(2)}</div><div class="l">Daily Avg</div></div>`:''}
+    ${currentTrip.budget?`<div class="stat"><div class="v">${currentTrip.currency_code} ${currentTrip.budget}</div><div class="l">Budget</div></div>`:''}
   </div>
   <table>
-    <thead><tr><th>Title</th><th>Category</th><th>Date</th><th style="text-align:right;">Amount</th></tr></thead>
-    <tbody>${rows}<tr class="total"><td colspan="3">TOTAL</td><td style="text-align:right;">${trip.currency} ${total.toFixed(2)}</td></tr></tbody>
+    <thead><tr><th>Title</th><th>Date</th><th style="text-align:right;">Amount</th></tr></thead>
+    <tbody>${rows}<tr class="total"><td colspan="2">TOTAL</td><td style="text-align:right;">${currentTrip.currency_code} ${total.toFixed(2)}</td></tr></tbody>
   </table>
   <p style="margin-top:28px;font-size:12px;color:#999;">Generated by Xpediture · ${new Date().toLocaleDateString()}</p>
   <script>window.onload=()=>window.print();<\/script>

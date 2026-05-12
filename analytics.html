@@ -70,9 +70,11 @@
 <div id="toast"></div>
 <script src="shared.js"></script>
 <script>
-let user, data, store;
+let user;
+let trips = [], expenses = [], currentTrip = null;
 let catChartInst = null, dayChartInst = null;
 
+// Ensure Chart.js uses your custom font
 Chart.defaults.font.family = "'DM Sans', sans-serif";
 
 async function init() {
@@ -80,23 +82,43 @@ async function init() {
   if (!user) return;
   await loadRates();
   renderSidebarUser(user);
-  const res = getUserStore(user);
-  data = res.data; store = res.store;
+  await refreshData();
+}
+
+async function refreshData() {
+  // Fetch from the live SQL database
+  trips = await getTrips(user.id);
+  
+  const savedId = localStorage.getItem("xp_current_trip_id");
+  currentTrip = trips.find(t => t.id == savedId) || trips[0];
+  
+  if (currentTrip) {
+    localStorage.setItem("xp_current_trip_id", currentTrip.id);
+    expenses = await getExpenses(currentTrip.id);
+  } else {
+    expenses = [];
+  }
+  
   renderTripSelect();
   renderAnalytics();
 }
 
 function renderTripSelect() {
   const sel = document.getElementById("tripSelect");
-  const trips = Object.keys(store.trips);
-  if (!trips.length) { sel.innerHTML = `<option>No trips yet</option>`; return; }
-  sel.innerHTML = trips.map(t => `<option value="${t}" ${t === store.currentTrip ? 'selected' : ''}>${t}</option>`).join('');
+  if (!trips || !trips.length) { 
+    sel.innerHTML = `<option value="">No trips yet</option>`; 
+    return; 
+  }
+  sel.innerHTML = trips.map(t => `<option value="${t.id}" ${currentTrip && t.id === currentTrip.id ? 'selected' : ''}>${t.name}</option>`).join('');
 }
 
-function changeTrip(name) {
-  store.currentTrip = name;
-  saveData(data);
-  renderAnalytics();
+async function changeTrip() {
+  const sel = document.getElementById("tripSelect");
+  const id = sel.value;
+  if (!id) return;
+  
+  localStorage.setItem("xp_current_trip_id", id);
+  await refreshData();
 }
 
 function renderAnalytics() {
@@ -104,41 +126,51 @@ function renderAnalytics() {
   Chart.defaults.color = root.getPropertyValue('--text').trim() || '#606080';
   Chart.defaults.borderColor = root.getPropertyValue('--border').trim() || '#1e1e2e';
 
-  const tName = store.currentTrip;
   const statsRow = document.getElementById("statsRow");
   const insightsList = document.getElementById("insightsList");
 
-  if (!tName || !store.trips[tName]) {
+  if (!currentTrip) {
     statsRow.innerHTML = `<div class="empty"><div class="icon">📊</div><p>Select a trip to see analytics</p></div>`;
     insightsList.innerHTML = '';
+    if (catChartInst) catChartInst.destroy();
+    if (dayChartInst) dayChartInst.destroy();
     return;
   }
 
-  const trip = store.trips[tName];
-  const exps = trip.expenses;
-  const total = exps.reduce((a, e) => a + e.amount, 0);
-  const avgExp = exps.length ? (total / exps.length).toFixed(2) : '0';
-  const dur = trip.start && trip.end ? Math.ceil((new Date(trip.end) - new Date(trip.start)) / 86400000) : 0;
+  // Calculate totals from SQL data
+  const total = expenses.reduce((a, e) => a + parseFloat(e.amount), 0);
+  const avgExp = expenses.length ? (total / expenses.length).toFixed(2) : '0';
+  
+  let dur = 0;
+  if (currentTrip.start_date && currentTrip.end_date) {
+    dur = Math.ceil((new Date(currentTrip.end_date) - new Date(currentTrip.start_date)) / 86400000);
+  }
   const dailyAvg = dur > 0 ? (total / dur).toFixed(2) : '—';
+  const curr = currentTrip.currency_code;
 
-  // By category
+  // Aggregate By Category
   const byCat = {};
-  exps.forEach(e => { byCat[e.category] = (byCat[e.category] || 0) + e.amount; });
-  const topCat = Object.keys(byCat).sort((a, b) => byCat[b] - byCat[a])[0];
+  expenses.forEach(e => { 
+    const catName = e.category || 'Other';
+    byCat[catName] = (byCat[catName] || 0) + parseFloat(e.amount); 
+  });
+  const topCat = Object.keys(byCat).length ? Object.keys(byCat).sort((a, b) => byCat[b] - byCat[a])[0] : null;
 
-  // By day
+  // Aggregate By Day
   const byDay = {};
-  exps.forEach(e => { if (e.date) byDay[e.date] = (byDay[e.date] || 0) + e.amount; });
+  expenses.forEach(e => { 
+    if (e.date) byDay[e.date] = (byDay[e.date] || 0) + parseFloat(e.amount); 
+  });
 
-  // Stats row
+  // 1. Render Top Stats Row
   statsRow.innerHTML = `
-    <div class="stat-box"><div class="val">${trip.currency} ${total.toFixed(2)}</div><div class="lbl">Total Spent</div></div>
-    <div class="stat-box"><div class="val">${exps.length}</div><div class="lbl">Expenses</div></div>
-    <div class="stat-box"><div class="val">${trip.currency} ${avgExp}</div><div class="lbl">Avg/Expense</div></div>
-    <div class="stat-box"><div class="val">${dailyAvg !== '—' ? trip.currency + ' ' + dailyAvg : '—'}</div><div class="lbl">Daily Avg</div></div>
+    <div class="stat-box"><div class="val">${curr} ${total.toFixed(2)}</div><div class="lbl">Total Spent</div></div>
+    <div class="stat-box"><div class="val">${expenses.length}</div><div class="lbl">Expenses</div></div>
+    <div class="stat-box"><div class="val">${curr} ${avgExp}</div><div class="lbl">Avg/Expense</div></div>
+    <div class="stat-box"><div class="val">${dailyAvg !== '—' ? curr + ' ' + dailyAvg : '—'}</div><div class="lbl">Daily Avg</div></div>
     <div class="stat-box"><div class="val">${topCat || '—'}</div><div class="lbl">Top Category</div></div>`;
 
-  // Category Doughnut
+  // 2. Render Category Doughnut Chart
   if (catChartInst) catChartInst.destroy();
   catChartInst = new Chart(document.getElementById("catChart"), {
     type: 'doughnut',
@@ -148,7 +180,7 @@ function renderAnalytics() {
         data: Object.values(byCat),
         backgroundColor: ['#c8a96e','#7c6fcd','#4ade80','#f87171','#60a5fa','#fbbf24','#a78bfa'],
         borderWidth: 2,
-        borderColor: '#16161f'
+        borderColor: '#16161f' // Matches dark theme background
       }]
     },
     options: {
@@ -158,15 +190,15 @@ function renderAnalytics() {
     }
   });
 
-  // Daily Bar Chart
+  // 3. Render Daily Bar Chart
   if (dayChartInst) dayChartInst.destroy();
   const sortedDays = Object.keys(byDay).sort();
   dayChartInst = new Chart(document.getElementById("dayChart"), {
     type: 'bar',
     data: {
-      labels: sortedDays.map(d => d.slice(5)),
+      labels: sortedDays.map(d => d.slice(5)), // Show MM-DD
       datasets: [{
-        label: trip.currency,
+        label: curr,
         data: sortedDays.map(d => byDay[d]),
         backgroundColor: 'rgba(200,169,110,0.7)',
         borderColor: '#c8a96e',
@@ -185,22 +217,23 @@ function renderAnalytics() {
     }
   });
 
-  // Insights
+  // 4. Calculate Smart Insights
   const insights = [];
-  const med = mostExpensiveDay(exps);
-  if (med) insights.push({ icon: '🔥', label: 'Most Expensive Day', val: `${med.date} — ${trip.currency} ${med.amount.toFixed(2)}` });
-  if (topCat) insights.push({ icon: '📂', label: 'Top Category', val: `${topCat} (${trip.currency} ${byCat[topCat].toFixed(2)})` });
+  const med = mostExpensiveDay(expenses);
+  if (med) insights.push({ icon: '🔥', label: 'Most Expensive Day', val: `${med.date} — ${curr} ${med.amount.toFixed(2)}` });
+  if (topCat) insights.push({ icon: '📂', label: 'Top Category', val: `${topCat} (${curr} ${byCat[topCat].toFixed(2)})` });
 
-  const streak = spendingStreak(exps);
+  const streak = spendingStreak(expenses);
   if (streak > 1) insights.push({ icon: '📅', label: 'Longest Spending Streak', val: `${streak} consecutive days` });
 
-  if (trip.budget > 0) {
-    const rem = trip.budget - total;
-    insights.push({ icon: rem >= 0 ? '✅' : '⚠️', label: 'Budget Status', val: `${trip.currency} ${Math.abs(rem).toFixed(2)} ${rem >= 0 ? 'remaining' : 'over budget'}` });
+  if (currentTrip.budget > 0) {
+    const rem = currentTrip.budget - total;
+    insights.push({ icon: rem >= 0 ? '✅' : '⚠️', label: 'Budget Status', val: `${curr} ${Math.abs(rem).toFixed(2)} ${rem >= 0 ? 'remaining' : 'over budget'}` });
   }
 
-  const homeTotal = convert(total, trip.currency, user.base);
-  insights.push({ icon: '💱', label: `In ${user.base}`, val: `${user.base} ${homeTotal.toFixed(2)}` });
+  const homeCur = user.home_currency || 'USD';
+  const homeTotal = convert(total, curr, homeCur);
+  insights.push({ icon: '💱', label: `In ${homeCur}`, val: `${homeCur} ${homeTotal.toFixed(2)}` });
 
   insightsList.innerHTML = !insights.length
     ? `<div class="empty"><p>Add more expenses to see insights.</p></div>`
@@ -211,10 +244,17 @@ function renderAnalytics() {
         </div>`).join('');
 }
 
+// Ensure the dropdown triggers changeTrip correctly
+const tripSelectEl = document.getElementById("tripSelect");
+if (tripSelectEl) {
+  tripSelectEl.addEventListener("change", changeTrip);
+}
+
+// Re-render when theme or currency changes
 function onCurrencyChange() { renderAnalytics(); }
+document.addEventListener('themeChanged', renderAnalytics);
 
 init();
-document.addEventListener('themeChanged', renderAnalytics);
 </script>
 </body>
 </html>

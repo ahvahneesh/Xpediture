@@ -384,7 +384,8 @@ video {
 
 <script>
 let currencyNames = { USD:"US Dollar",EUR:"Euro",GBP:"British Pound",JPY:"Japanese Yen",INR:"Indian Rupee",AUD:"Australian Dollar",CAD:"Canadian Dollar",CHF:"Swiss Franc",SGD:"Singapore Dollar",AED:"UAE Dirham",THB:"Thai Baht",MXN:"Mexican Peso",BRL:"Brazilian Real",KRW:"South Korean Won",HKD:"Hong Kong Dollar" };
-let users = JSON.parse(localStorage.getItem("xp_users")) || [{ u: "admin", p: "admin123", base: "USD" }];
+
+// We don't need the local 'users' array anymore since Flask handles it!
 
 // Already logged in? skip straight to app
 if (localStorage.getItem("xp_logged")) window.location.href = "trips.html";
@@ -395,8 +396,10 @@ async function loadCurrencies() {
     currencyNames = n;
   } catch(e) {}
   const sel = document.getElementById("homeCur");
-  sel.innerHTML = Object.keys(currencyNames).sort().map(c => `<option value="${c}">${c} — ${currencyNames[c]}</option>`).join('');
-  sel.value = "USD";
+  if (sel) {
+    sel.innerHTML = Object.keys(currencyNames).sort().map(c => `<option value="${c}">${c} — ${currencyNames[c]}</option>`).join('');
+    sel.value = "USD";
+  }
 }
 
 function openModal(mode) {
@@ -422,34 +425,54 @@ function handleOverlayClick(e) {
 
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
 
-function doLogin() {
+async function doLogin() {
   const u = document.getElementById("loginU").value.trim();
   const p = document.getElementById("loginP").value.trim();
   if (!u || !p) return showError("Please fill in all fields.");
-  const user = users.find(x => x.u === u && x.p === p);
-  if (!user) return showError("Invalid username or password.");
-  localStorage.setItem("xp_logged", JSON.stringify(user));
-  let data = JSON.parse(localStorage.getItem("xp_data")) || {};
-  if (!data[user.u]) { data[user.u] = { trips: {}, currentTrip: "" }; localStorage.setItem("xp_data", JSON.stringify(data)); }
-  window.location.href = "trips.html";
+  
+  try {
+    const res = await fetch("http://127.0.0.1:5000/auth/login", {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: u, password: p })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      // THE FIX: Drill down to get the actual user object with the ID
+      const userData = data.user || data;
+      localStorage.setItem("xp_logged", JSON.stringify(userData));
+      window.location.href = "trips.html";
+    } else {
+      showError(data.error || "Login failed");
+    }
+  } catch (e) {
+    showError("Server connection failed");
+  }
 }
 
-function doSignup() {
+async function doSignup() {
   const u = document.getElementById("signupU").value.trim();
   const p = document.getElementById("signupP").value.trim();
   const base = document.getElementById("homeCur").value;
   if (!u || !p) return showError("Please fill in all fields.");
-  if (u.length < 3) return showError("Username must be at least 3 characters.");
-  if (p.length < 4) return showError("Password must be at least 4 characters.");
-  if (users.find(x => x.u === u)) return showError("Username already taken.");
-  const newUser = { u, p, base };
-  users.push(newUser);
-  localStorage.setItem("xp_users", JSON.stringify(users));
-  localStorage.setItem("xp_logged", JSON.stringify(newUser));
-  let data = JSON.parse(localStorage.getItem("xp_data")) || {};
-  data[u] = { trips: {}, currentTrip: "" };
-  localStorage.setItem("xp_data", JSON.stringify(data));
-  window.location.href = "trips.html";
+
+  try {
+    const res = await fetch("http://127.0.0.1:5000/auth/register", {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: u, password: p, home_currency: base })
+    });
+    if (res.ok) {
+      openModal('login');
+      // Using your error element to show success, which keeps your UI intact
+      showError("Account created! Please log in.");
+    } else {
+      const data = await res.json();
+      showError(data.error || "Signup failed");
+    }
+  } catch (e) {
+    showError("Server connection failed");
+  }
 }
 
 function showError(msg) { const el = document.getElementById("errorMsg"); el.textContent = msg; el.style.display = "block"; }

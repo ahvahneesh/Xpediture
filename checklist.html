@@ -101,7 +101,7 @@
 <div id="toast"></div>
 <script src="shared.js"></script>
 <script>
-let user, data, store;
+let user;
 let currentFilter = 'all';
 
 const TEMPLATES = {
@@ -112,137 +112,176 @@ const TEMPLATES = {
   health: ['Prescription meds', 'Pain relievers', 'Band-aids', 'Hand sanitizer', 'Face masks', 'Vitamins', 'Antidiarrheal', 'Motion sickness pills']
 };
 
+let trips = [], items = [], currentTrip = null;
+
 async function init() {
   user = requireAuth();
   if (!user) return;
   await loadRates();
   renderSidebarUser(user);
-  const res = getUserStore(user);
-  data = res.data; store = res.store;
+  await refreshData();
+}
+
+async function refreshData() {
+  trips = await getTrips(user.id);
+  const savedId = localStorage.getItem("xp_current_trip_id");
+  currentTrip = trips.find(t => t.id == savedId) || trips[0];
+  
+  if (currentTrip) {
+    localStorage.setItem("xp_current_trip_id", currentTrip.id);
+    items = await getChecklist(currentTrip.id);
+  } else {
+    items = [];
+  }
+  
   renderTripSelect();
   renderChecklist();
 }
 
 function renderTripSelect() {
   const sel = document.getElementById("tripSelect");
-  const trips = Object.keys(store.trips);
-  if (!trips.length) { sel.innerHTML = `<option value="">No trips — create one first</option>`; return; }
-  sel.innerHTML = trips.map(t => `<option value="${t}" ${t === store.currentTrip ? 'selected' : ''}>${t}</option>`).join('');
+  if (!trips || !trips.length) { 
+    sel.innerHTML = `<option value="">No trips — create one first</option>`; 
+    return; 
+  }
+  sel.innerHTML = trips.map(t => `<option value="${t.id}" ${currentTrip && t.id === currentTrip.id ? 'selected' : ''}>${t.name}</option>`).join('');
 }
 
-function changeTrip(name) {
-  store.currentTrip = name;
-  saveData(data);
-  renderChecklist();
+async function changeTrip() {
+  const sel = document.getElementById("tripSelect");
+  const id = sel.value;
+  if (!id) return;
+  localStorage.setItem("xp_current_trip_id", id);
+  await refreshData();
 }
 
-function addItem() {
-  if (!store.currentTrip) return notify("Select a trip first", "error");
+async function addItem() {
+  if (!currentTrip) return notify("Select a trip first", "error");
   const val = document.getElementById("checkInput").value.trim();
   if (!val) return;
-  const trip = store.trips[store.currentTrip];
-  if (!trip.checklist) trip.checklist = [];
-  if (trip.checklist.find(x => x.text.toLowerCase() === val.toLowerCase())) return notify("Item already exists", "warn");
-  trip.checklist.push({ text: val, done: false });
-  document.getElementById("checkInput").value = "";
-  saveData(data);
-  renderChecklist();
+  
+  // Prevent duplicates locally before hitting SQL
+  if (items.find(x => x.item_text.toLowerCase() === val.toLowerCase())) return notify("Item already exists", "warn");
+  
+  const res = await apiFetch(`/api/checklist/${currentTrip.id}`, {
+    method: 'POST',
+    body: JSON.stringify({ item_text: val, is_done: false })
+  });
+
+  if (res && res.ok) {
+    document.getElementById("checkInput").value = "";
+    await refreshData();
+  } else {
+    notify("Failed to add item.", "error");
+  }
 }
 
-function addTemplate(type) {
-  if (!store.currentTrip) return notify("Select a trip first", "error");
-  const trip = store.trips[store.currentTrip];
-  if (!trip.checklist) trip.checklist = [];
-  const existing = trip.checklist.map(x => x.text.toLowerCase());
+async function addTemplate(type) {
+  if (!currentTrip) return notify("Select a trip first", "error");
+  
+  const existing = items.map(x => x.item_text.toLowerCase());
   let added = 0;
 
-  const emojis = {
-    essentials: '🗂',
-    clothes: '👕',
-    tech: '💻',
-    beach: '🏖',
-    health: '💊'
-  };
+  const emojis = { essentials: '🗂', clothes: '👕', tech: '💻', beach: '🏖', health: '💊' };
   const emojiPrefix = `<span style="font-size: 1.2em; font-weight: bold; margin-right: 6px;">${emojis[type]}</span>`;
 
-  TEMPLATES[type].forEach(item => {
-    const taggedItem = emojiPrefix + item;
+  // Bulk SQL insert handling via promises
+  const promises = [];
+  
+  TEMPLATES[type].forEach(itemText => {
+    const taggedItem = emojiPrefix + itemText;
     if (!existing.includes(taggedItem.toLowerCase())) {
-      trip.checklist.push({ text: taggedItem, done: false });
+      const p = apiFetch(`/api/checklist/${currentTrip.id}`, {
+        method: 'POST',
+        body: JSON.stringify({ item_text: taggedItem, is_done: false })
+      });
+      promises.push(p);
       added++;
     }
   });
-  saveData(data);
-  renderChecklist();
-  notify(`Added ${added} items!`);
+
+  if (added > 0) {
+    await Promise.all(promises);
+    await refreshData();
+    notify(`Added ${added} items!`);
+  } else {
+    notify("Template items already packed!", "warn");
+  }
 }
 
-function toggleItem(i) {
-  const trip = store.trips[store.currentTrip];
-  trip.checklist[i].done = !trip.checklist[i].done;
-  saveData(data);
-  renderChecklist();
+async function toggleItem(id, currentStatus) {
+  const res = await apiFetch(`/api/checklist/item/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ is_done: !currentStatus })
+  });
+  if (res && res.ok) await refreshData();
 }
 
-function deleteItem(i) {
-  store.trips[store.currentTrip].checklist.splice(i, 1);
-  saveData(data);
-  renderChecklist();
+async function deleteItem(id) {
+  const res = await apiFetch(`/api/checklist/item/${id}`, { method: 'DELETE' });
+  if (res && res.ok) await refreshData();
 }
 
-function clearDone() {
-  const trip = store.trips[store.currentTrip];
-  trip.checklist = trip.checklist.filter(x => !x.done);
-  saveData(data);
-  renderChecklist();
+async function clearDone() {
+  const doneItems = items.filter(x => x.is_done);
+  if (!doneItems.length) return;
+  
+  const promises = doneItems.map(item => apiFetch(`/api/checklist/item/${item.id}`, { method: 'DELETE' }));
+  await Promise.all(promises);
+  
+  await refreshData();
   notify("Cleared packed items");
 }
 
-function clearAll() {
+async function clearAll() {
   if (!confirm("Clear the entire checklist?")) return;
-  store.trips[store.currentTrip].checklist = [];
-  saveData(data);
-  renderChecklist();
+  
+  const promises = items.map(item => apiFetch(`/api/checklist/item/${item.id}`, { method: 'DELETE' }));
+  await Promise.all(promises);
+  
+  await refreshData();
   notify("List cleared");
 }
 
 function setFilter(f) {
   currentFilter = f;
   ['All','Todo','Done'].forEach(n => {
-    document.getElementById('filter'+n).style.background = f === n.toLowerCase() ? 'var(--accent)' : '';
-    document.getElementById('filter'+n).style.color = f === n.toLowerCase() ? '#0a0a0f' : '';
+    const btn = document.getElementById('filter'+n);
+    if (btn) {
+      btn.style.background = f === n.toLowerCase() ? 'var(--accent)' : '';
+      btn.style.color = f === n.toLowerCase() ? '#0a0a0f' : '';
+    }
   });
   renderChecklist();
 }
 
 function renderChecklist() {
-  const tName = store.currentTrip;
   const container = document.getElementById("checkList");
   const progressCard = document.getElementById("progressCard");
 
-  if (!tName || !store.trips[tName]) {
+  if (!currentTrip) {
     container.innerHTML = `<div class="empty"><div class="icon">🎒</div><p>Select a trip to manage your checklist</p></div>`;
-    progressCard.style.display = 'none';
+    if (progressCard) progressCard.style.display = 'none';
     return;
   }
 
-  const list = store.trips[tName].checklist || [];
-  const done = list.filter(x => x.done).length;
-  const pct = list.length ? Math.round((done / list.length) * 100) : 0;
+  const done = items.filter(x => x.is_done).length;
+  const pct = items.length ? Math.round((done / items.length) * 100) : 0;
 
-  // Progress
-  progressCard.style.display = list.length ? 'block' : 'none';
-  document.getElementById("progressLabel").textContent = `${done} / ${list.length} packed (${pct}%)`;
-  document.getElementById("progressBar").style.width = pct + '%';
+  if (progressCard) {
+    progressCard.style.display = items.length ? 'block' : 'none';
+    document.getElementById("progressLabel").textContent = `${done} / ${items.length} packed (${pct}%)`;
+    document.getElementById("progressBar").style.width = pct + '%';
+  }
 
-  // Clear buttons
-  document.getElementById("clearDoneBtn").style.display = done > 0 ? 'block' : 'none';
-  document.getElementById("clearAllBtn").style.display = list.length > 0 ? 'block' : 'none';
+  const clearDoneBtn = document.getElementById("clearDoneBtn");
+  const clearAllBtn = document.getElementById("clearAllBtn");
+  if (clearDoneBtn) clearDoneBtn.style.display = done > 0 ? 'block' : 'none';
+  if (clearAllBtn) clearAllBtn.style.display = items.length > 0 ? 'block' : 'none';
 
-  // Filter
-  const filtered = list.map((item, i) => ({ ...item, i })).filter(item => {
-    if (currentFilter === 'todo') return !item.done;
-    if (currentFilter === 'done') return item.done;
+  const filtered = items.filter(item => {
+    if (currentFilter === 'todo') return !item.is_done;
+    if (currentFilter === 'done') return item.is_done;
     return true;
   });
 
@@ -253,11 +292,14 @@ function renderChecklist() {
 
   container.innerHTML = filtered.map(item => `
     <div class="check-row">
-      <input type="checkbox" ${item.done ? 'checked' : ''} onchange="toggleItem(${item.i})">
-      <span style="flex:1;" class="${item.done ? 'done' : ''}">${item.text}</span>
-      <button class="danger sm" onclick="deleteItem(${item.i})">✕</button>
+      <input type="checkbox" ${item.is_done ? 'checked' : ''} onchange="toggleItem(${item.id}, ${item.is_done})">
+      <span style="flex:1;" class="${item.is_done ? 'done' : ''}">${item.item_text}</span>
+      <button class="danger sm" onclick="deleteItem(${item.id})">✕</button>
     </div>`).join('');
 }
+
+const tripSelectEl = document.getElementById("tripSelect");
+if (tripSelectEl) tripSelectEl.addEventListener("change", changeTrip);
 
 init();
 </script>
