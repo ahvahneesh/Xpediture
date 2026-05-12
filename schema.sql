@@ -8,6 +8,11 @@ CREATE TABLE users (
     home_currency CHAR(3) DEFAULT 'USD'
 );
 
+CREATE TABLE categories (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(50) UNIQUE NOT NULL
+);
+
 CREATE TABLE trips (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL,
@@ -27,9 +32,10 @@ CREATE TABLE expenses (
     trip_id INTEGER NOT NULL,
     title VARCHAR(100) NOT NULL,
     amount DECIMAL(10, 2) NOT NULL,
-    category_name VARCHAR(50),
+    category_id INTEGER,
     date DATE NOT NULL,
-    CONSTRAINT fk_trip_expense FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE
+    CONSTRAINT fk_trip_expense FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE,
+    CONSTRAINT fk_category FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
 );
 
 CREATE TABLE checklist_items (
@@ -48,4 +54,12 @@ CREATE TABLE places (
     category VARCHAR(50),
     rating DECIMAL(2, 1),
     description TEXT
+);
+
+CREATE TABLE trip_places (
+    trip_id INTEGER NOT NULL,
+    place_id INTEGER NOT NULL,
+    PRIMARY KEY (trip_id, place_id),
+    CONSTRAINT fk_trip_place_trip FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE,
+    CONSTRAINT fk_trip_place_place FOREIGN KEY (place_id) REFERENCES places(id) ON DELETE CASCADE
 );
